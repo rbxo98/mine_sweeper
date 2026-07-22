@@ -1,22 +1,16 @@
 import { Application, Container, FederatedPointerEvent, Graphics, Text } from 'pixi.js';
-import {
-  CellStatus,
-  chebyshevDistance,
-  createParams,
-  Game,
-  GamePhase,
-  isAdjacent8,
-  neighbors8,
-  ORIGIN,
-  vecKey,
-} from '../object';
-import type { Vec2 } from '../object';
+import { chebyshevDistance, GamePhase, GameBController, isAdjacent8, neighbors8, ORIGIN, vecKey } from 'game-b-core';
+import type { Vec2 } from 'game-b-core';
 
 // 이 파일 밖에는 게임 UI가 없다 — 전체 게임(지도 + HUD + 버튼)을 캔버스 하나 안에서만 그린다.
 // index.html/style.css는 그 캔버스를 화면 중앙에 배치하는 역할만 한다.
 // game-a와 동일한 방향([[decisions/2026-07-22-game-b-canvas-unification]])으로 통일했다.
 // §6의 정식 연출(카메라 이징·스프라이트·파티클)은 이후 이 클래스 위에 얹는다 — 지금은
 // 도형+텍스트로 규칙이 완전히 동작하는 수준(P2)까지만 맞춘다.
+//
+// 게임 상태·규칙은 전부 `GameBController`(game-b-core)에 있다. 이 클래스는 순수하게 "Pixi로
+// 그리기"와 "Pixi 포인터/키보드 이벤트를 controller의 onPrimaryAction 등으로 번역하기"만
+// 한다 — game-a와 같은 패턴([[decisions/2026-07-22-shared-core-packages]]).
 
 const CELL_SIZE = 32;
 const VIEW_RADIUS_X = 8; // 플레이어 좌우로 보이는 칸 수 → 가로 17칸
@@ -61,30 +55,18 @@ const DIRECTION_KEYS: Record<string, Vec2> = {
 export class GameView {
   private readonly app: Application;
   private readonly root = new Container();
-
-  private seed = 0;
-  private game: Game;
+  private readonly controller = new GameBController();
   private readonly onKeyDown = (e: KeyboardEvent): void => this.handleKeyDown(e);
 
   constructor(app: Application) {
     this.app = app;
     this.app.stage.addChild(this.root);
-    this.game = this.createGame();
+    this.controller.subscribe(() => this.render());
   }
 
   start(): void {
     this.resizeCanvas();
     window.addEventListener('keydown', this.onKeyDown);
-    this.render();
-  }
-
-  private createGame(): Game {
-    this.seed = Math.floor(Math.random() * 1_000_000);
-    return new Game(createParams(), this.seed);
-  }
-
-  private restart(): void {
-    this.game = this.createGame();
     this.render();
   }
 
@@ -96,32 +78,12 @@ export class GameView {
     this.app.renderer.resize(width, height);
   }
 
-  private isConfirmedAt(pos: Vec2): boolean {
-    const rec = this.game.observations.get(vecKey(pos));
-    return rec !== undefined && rec.status !== CellStatus.OBSERVED;
-  }
-
-  /** 인접 칸에 대한 이동/해체 선언, 또는 확정 칸으로의 후퇴 (§5.3, §6.4) */
-  private act(target: Vec2, wantsDefuse: boolean): void {
-    if (this.game.phase !== GamePhase.PLAYING) return;
-    if (!isAdjacent8(this.game.player, target)) return;
-
-    if (this.isConfirmedAt(target)) {
-      this.game.retreat(target);
-    } else if (wantsDefuse) {
-      this.game.declareDefuse(target);
-    } else {
-      this.game.declareMove(target);
-    }
-    this.render();
-  }
-
   private handleKeyDown(e: KeyboardEvent): void {
     const key = e.key.toLowerCase();
 
     if (key === 'r' && !e.shiftKey) {
       e.preventDefault();
-      this.restart();
+      this.controller.restart();
       return;
     }
 
@@ -129,12 +91,13 @@ export class GameView {
     if (!dir) return;
 
     e.preventDefault();
-    const target: Vec2 = { x: this.game.player.x + dir.x, y: this.game.player.y + dir.y };
-    this.act(target, e.shiftKey);
+    const target: Vec2 = { x: this.controller.game.player.x + dir.x, y: this.controller.game.player.y + dir.y };
+    if (e.shiftKey) this.controller.onSecondaryAction(target);
+    else this.controller.onPrimaryAction(target);
   }
 
   private statusText(): string {
-    if (this.game.phase === GamePhase.OVER) return `게임 종료 · 최종 점수 ${this.game.score}`;
+    if (this.controller.phase === GamePhase.OVER) return `게임 종료 · 최종 점수 ${this.controller.game.score}`;
     return '정찰 중';
   }
 
@@ -154,6 +117,7 @@ export class GameView {
 
   private buildHud(): Container {
     const container = new Container();
+    const game = this.controller.game;
 
     const title = new Text({
       text: '지뢰밭 정찰대 (B) — Minefield Scout',
@@ -162,11 +126,11 @@ export class GameView {
     title.position.set(BOARD_MARGIN, 10);
     container.addChild(title);
 
-    const dist = chebyshevDistance(ORIGIN, this.game.player);
-    const hearts = '♥'.repeat(Math.max(0, this.game.lives)) + '♡'.repeat(Math.max(0, this.game.params.lives - this.game.lives));
+    const dist = chebyshevDistance(ORIGIN, game.player);
+    const hearts = '♥'.repeat(Math.max(0, game.lives)) + '♡'.repeat(Math.max(0, game.params.lives - game.lives));
     const meta =
-      `행동 ${this.game.actionsRemaining}/${this.game.params.actionBudget}  ·  라이프 ${hearts}  ·  ` +
-      `점수 ${this.game.score}  ·  콤보 ${this.game.combo}  ·  거리 ${dist}  ·  시드 ${this.seed}  ·  ${this.statusText()}`;
+      `행동 ${game.actionsRemaining}/${game.params.actionBudget}  ·  라이프 ${hearts}  ·  ` +
+      `점수 ${game.score}  ·  콤보 ${game.combo}  ·  거리 ${dist}  ·  시드 ${this.controller.seed}  ·  ${this.statusText()}`;
     const metaText = new Text({
       text: meta,
       style: { fill: COLOR.muted, fontSize: 12, fontFamily: 'system-ui' },
@@ -180,8 +144,9 @@ export class GameView {
   private buildBoard(): Container {
     const container = new Container();
     const originY = HUD_HEIGHT + BOARD_MARGIN;
-    const player = this.game.player;
-    const gameOver = this.game.phase !== GamePhase.PLAYING;
+    const game = this.controller.game;
+    const player = game.player;
+    const gameOver = game.phase !== GamePhase.PLAYING;
 
     const currentView = new Set<string>([vecKey(player), ...neighbors8(player).map(vecKey)]);
 
@@ -191,7 +156,7 @@ export class GameView {
         const screenX = BOARD_MARGIN + (dx + VIEW_RADIUS_X) * CELL_SIZE;
         const screenY = originY + (dy + VIEW_RADIUS_Y) * CELL_SIZE;
 
-        const rec = this.game.observations.get(vecKey(pos));
+        const rec = game.observations.get(vecKey(pos));
         const isCurrent = currentView.has(vecKey(pos));
         const adjacent = isAdjacent8(player, pos);
 
@@ -201,27 +166,27 @@ export class GameView {
 
         if (rec) {
           switch (rec.status) {
-            case CellStatus.OBSERVED:
+            case 'observed':
               bgColor = isCurrent ? COLOR.currentView : COLOR.observedPast;
               labelColor = isCurrent ? COLOR.currentViewText : COLOR.observedPastText;
               label = rec.sensorValue === 0 ? '' : String(rec.sensorValue);
               break;
-            case CellStatus.VISITED_SAFE:
+            case 'visited_safe':
               bgColor = COLOR.visitedSafe;
               label = rec.sensorValue === 0 ? '' : String(rec.sensorValue);
               break;
-            case CellStatus.DEFUSED:
+            case 'defused':
               bgColor = COLOR.defused;
               label = '✓';
               break;
-            case CellStatus.CRATER:
+            case 'crater':
               bgColor = COLOR.crater;
               label = '×';
               break;
           }
 
           // 게임 오버: 관측했던 범위 안에서 아직 남아 있는(미포획) 지뢰를 공개한다 (§6.3).
-          if (gameOver && this.game.world.isMine(pos)) {
+          if (gameOver && game.world.isMine(pos)) {
             label = '💣';
             labelColor = COLOR.text;
           }
@@ -236,7 +201,11 @@ export class GameView {
         if (adjacent && !gameOver) {
           bg.eventMode = 'static';
           bg.cursor = 'pointer';
-          bg.on('pointerdown', (e: FederatedPointerEvent) => this.act(pos, e.button === 2));
+          // 입력 레이어: 우클릭=보조 동작이라는 매핑이 이 한 줄에만 있다.
+          bg.on('pointerdown', (e: FederatedPointerEvent) => {
+            if (e.button === 2) this.controller.onSecondaryAction(pos);
+            else this.controller.onPrimaryAction(pos);
+          });
         }
         container.addChild(bg);
 
@@ -262,7 +231,7 @@ export class GameView {
     const container = new Container();
     const footerY = this.app.screen.height - FOOTER_HEIGHT + 8;
 
-    const restartButton = this.makeButton('재시작 (R)', true, () => this.restart());
+    const restartButton = this.makeButton('재시작 (R)', true, () => this.controller.restart());
     restartButton.position.set(BOARD_MARGIN, footerY);
     container.addChild(restartButton);
 

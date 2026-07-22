@@ -1,11 +1,16 @@
 import { Application, Container, FederatedPointerEvent, Graphics, Text } from 'pixi.js';
-import { createParams, createRng, EXPLOSION_LABEL, Game, GroundVisual, Phase } from '../object';
-import type { Ground, Params, Vec2 } from '../object';
+import { EXPLOSION_LABEL, GameAController, GroundVisual, Phase, PRESET_NAMES } from 'game-a-core';
 
 // 이 파일 밖에는 게임 UI가 없다 — 전체 게임(보드 + HUD + 버튼)을 캔버스 하나 안에서만 그린다.
 // index.html/style.css는 그 캔버스를 화면 중앙에 배치하는 역할만 한다.
 // §6의 정식 연출(스프라이트 애니메이션·파티클·카메라)은 이후 이 클래스 위에 얹는다 —
 // 지금은 도형+텍스트로 규칙이 완전히 동작하는 수준(P2)까지만 맞춘다.
+//
+// 게임 상태·규칙(어느 칸을 선택할 수 있는지, 깃발/코드오픈 판정 등)은 전부 `GameAController`
+// (game-a-core)에 있다. 이 클래스는 순수하게 "Pixi로 그리기"와 "Pixi 포인터 이벤트를
+// controller의 onPrimaryAction 등으로 번역하기"만 한다 — RN/Skia 뷰가 나중에 생기면 이
+// controller를 그대로 재사용하고 이 클래스에 해당하는 부분만 새로 만들면 된다
+// ([[decisions/2026-07-22-input-vs-game-event-layer-split]]).
 
 // §6.1 원안은 "셀 최소 44px"였지만, 스크롤 없이 도전 프리셋(30×16)까지 한 화면에 들어오도록
 // 축소했다 — 숫자만 적당히 읽히면 되고 그 이상의 여백은 필요 없다는 판단 (2026-07-22).
@@ -14,13 +19,6 @@ const CELL_GAP = 2;
 const BOARD_MARGIN = 16;
 const HUD_HEIGHT = 64;
 const FOOTER_HEIGHT = 56;
-
-// 고전 지뢰찾기 표준 난이도 표(입문 9×9/10, 표준 16×16/40, 도전 30×16/99)를 그대로 따른다.
-const PRESETS: Record<string, Params> = {
-  입문: createParams({ width: 9, height: 9, mineCount: 10 }),
-  표준: createParams({ width: 16, height: 16, mineCount: 40 }),
-  도전: createParams({ width: 30, height: 16, mineCount: 99 }),
-};
 
 const COLOR = {
   background: 0x111318,
@@ -38,46 +36,25 @@ const COLOR = {
   buttonDisabled: 0x14151a,
 } as const;
 
-function vecKeyOf(v: Vec2): string {
+function vecKeyOf(v: { x: number; y: number }): string {
   return `${v.x},${v.y}`;
 }
 
 export class GameView {
   private readonly app: Application;
   private readonly root = new Container();
-
-  private currentPresetName = '표준';
-  private seed = 0;
-  private game: Game;
-  private selected = new Set<string>();
-  /** 드래그 선택 중 적용할 동작 — 드래그 시작 칸의 상태로 정해진다 (null이면 드래그 중 아님) */
-  private dragMode: 'select' | 'deselect' | null = null;
+  private readonly controller = new GameAController('표준');
 
   constructor(app: Application) {
     this.app = app;
     this.app.stage.addChild(this.root);
-    this.game = this.createGame(this.currentPresetName);
+    // controller 상태가 바뀔 때마다(공개/깃발/드래그선택/재시작) 다시 그린다.
+    this.controller.subscribe(() => this.render());
     // 드래그 중 캔버스 밖에서 마우스를 놓아도 드래그가 끝나도록 전역으로 듣는다.
-    window.addEventListener('pointerup', () => {
-      this.dragMode = null;
-    });
+    window.addEventListener('pointerup', () => this.controller.onDragEnd());
   }
 
   start(): void {
-    this.resizeToCurrentBoard();
-    this.render();
-  }
-
-  private createGame(presetName: string): Game {
-    this.seed = Math.floor(Math.random() * 1_000_000);
-    return new Game(PRESETS[presetName]!, createRng(this.seed));
-  }
-
-  private restart(presetName: string = this.currentPresetName): void {
-    this.currentPresetName = presetName;
-    this.game = this.createGame(presetName);
-    this.selected = new Set();
-    this.dragMode = null;
     this.resizeToCurrentBoard();
     this.render();
   }
@@ -89,7 +66,7 @@ export class GameView {
    * 폭을 재서(폰트 렌더링에 의존하는 값이라 하드코딩 대신 실측) 최소 폭을 보장한다 (2026-07-22).
    */
   private resizeToCurrentBoard(): void {
-    const { width: cols, height: rows } = this.game.params;
+    const { width: cols, height: rows } = this.controller.game.params;
     const boardPxW = cols * CELL_SIZE + (cols - 1) * CELL_GAP;
     const boardPxH = rows * CELL_SIZE + (rows - 1) * CELL_GAP;
     const boardWidth = BOARD_MARGIN * 2 + boardPxW;
@@ -102,79 +79,9 @@ export class GameView {
     this.app.renderer.resize(width, height);
   }
 
-  /**
-   * 미공개 칸 클릭(드래그 시작점): 그 칸이 이미 선택 중이었으면 이번 드래그는 "해제" 모드,
-   * 아니었으면 "선택" 모드로 정하고 그 칸부터 바로 적용한다. 단순 클릭(드래그 없음)은
-   * 이 칸 하나만 토글되는 것과 결과가 같다.
-   */
-  private beginDragSelect(cell: Ground): void {
-    if (!cell.isHidden) return;
-    const alreadySelected = this.selected.has(vecKeyOf(cell.position));
-    this.dragMode = alreadySelected ? 'deselect' : 'select';
-    this.applyDragMode(cell);
-  }
-
-  /** 드래그 중 새로 지나간 칸에 현재 드래그 모드(선택/해제)를 적용한다. */
-  private applyDragMode(cell: Ground): void {
-    if (this.dragMode === null || !cell.isHidden) return;
-    const k = vecKeyOf(cell.position);
-    if (this.dragMode === 'select') this.selected.add(k);
-    else this.selected.delete(k);
-    this.render();
-  }
-
-  /**
-   * 이미 공개된 숫자 칸을 클릭했을 때의 코드 오픈(원본 지뢰찾기의 chording) —
-   * 주변 8칸 중 깃발 수가 그 칸의 숫자 이상이면, 아직 미공개·미깃발인 나머지 이웃 칸들을
-   * 전부 임시 선택에 "추가"한다(토글 아님 — 이미 선택된 칸을 다시 빼지 않는다).
-   * 숫자가 0인 칸은 깃발이 하나도 없어도(0 ≥ 0) 항상 조건을 만족해 바로 동작한다.
-   * 제거는 그 칸을 직접 클릭해야만 가능하다.
-   */
-  private chordSelect(cell: Ground): void {
-    const number = cell.adjacentMineCount;
-
-    const neighbors = this.game.board.neighbors8(cell.position).map((p) => this.game.board.cellAt(p));
-    const flaggedCount = neighbors.filter((n) => n.visual === GroundVisual.FLAGGED).length;
-    if (flaggedCount < number) return;
-
-    let changed = false;
-    for (const n of neighbors) {
-      if (!n.isHidden) continue;
-      const k = vecKeyOf(n.position);
-      if (!this.selected.has(k)) {
-        this.selected.add(k);
-        changed = true;
-      }
-    }
-    if (changed) this.render();
-  }
-
-  private confirmReveal(): void {
-    if (this.selected.size === 0) return;
-    const cells: Vec2[] = [...this.selected].map((k) => {
-      const [x, y] = k.split(',').map(Number);
-      return { x: x!, y: y! };
-    });
-    this.game.reveal(cells);
-    this.selected = new Set();
-    this.render();
-  }
-
-  /**
-   * 우클릭: 미공개 칸엔 깃발 설치, 이미 깃발 꽂힌 칸엔 회수 (§5.7 확장).
-   * 임시 선택 중이던 다른 칸들은 그대로 유지한다 — 깃발을 꽂는다고 선택이 사라지지 않는다.
-   * 방금 깃발 대상이 된 칸 자신만 선택에서 제거한다(더 이상 유효한 공개 후보가 아니므로).
-   */
-  private toggleFlag(cell: Ground): void {
-    if (!cell.isHidden && !cell.isFlagged) return;
-    this.selected.delete(vecKeyOf(cell.position));
-    this.game.flag(cell.position);
-    this.render();
-  }
-
   private statusText(): string {
-    if (this.game.phase === Phase.WON) return '클리어!';
-    if (this.game.phase === Phase.LOST) return '패배';
+    if (this.controller.phase === Phase.WON) return '클리어!';
+    if (this.controller.phase === Phase.LOST) return '패배';
     return '플레이 중';
   }
 
@@ -202,9 +109,10 @@ export class GameView {
     title.position.set(BOARD_MARGIN, 12);
     container.addChild(title);
 
+    const game = this.controller.game;
     const meta =
-      `프리셋 ${this.currentPresetName}  ·  시드 ${this.seed}  ·  ` +
-      `남은 깃발 ${this.game.flagsRemaining}  ·  행동 수 ${this.game.actionCount}  ·  ${this.statusText()}`;
+      `프리셋 ${this.controller.presetName}  ·  시드 ${this.controller.seed}  ·  ` +
+      `남은 깃발 ${game.flagsRemaining}  ·  행동 수 ${game.actionCount}  ·  ${this.statusText()}`;
     const metaText = new Text({
       text: meta,
       style: { fill: COLOR.muted, fontSize: 13, fontFamily: 'system-ui' },
@@ -219,17 +127,18 @@ export class GameView {
   private buildBoard(): Container {
     const container = new Container();
     const originY = HUD_HEIGHT + BOARD_MARGIN;
+    const game = this.controller.game;
 
     // 게임 종료 시 전체 지뢰 위치 공개 (§5.8): 정답 깃발(✓)·오답 깃발(✗)·미포획 지뢰·
     // 폭발 지점을 결과 화면에서 전부 드러낸다. 진행 중에는 game.mines를 절대 참고하지 않는다.
-    const gameOver = this.game.phase !== Phase.PLAYING;
-    const minePositions = gameOver ? new Set(this.game.mines.map((m) => vecKeyOf(m.position))) : null;
+    const gameOver = game.phase !== Phase.PLAYING;
+    const minePositions = gameOver ? new Set(game.mines.map((m) => vecKeyOf(m.position))) : null;
 
-    for (const cell of this.game.board.allCells()) {
+    for (const cell of game.board.allCells()) {
       const x = BOARD_MARGIN + cell.x * (CELL_SIZE + CELL_GAP);
       const y = originY + cell.y * (CELL_SIZE + CELL_GAP);
 
-      const isSelected = this.selected.has(vecKeyOf(cell.position));
+      const isSelected = this.controller.selected.has(vecKeyOf(cell.position));
       const isExplosion = cell.visual === GroundVisual.REVEALED && cell.bundleLabel === EXPLOSION_LABEL;
       const isMine = gameOver && minePositions!.has(vecKeyOf(cell.position));
 
@@ -250,17 +159,13 @@ export class GameView {
       if (!gameOver) {
         bg.eventMode = 'static';
         bg.cursor = cell.isHidden || cell.isFlagged ? 'pointer' : 'default';
+        // 입력 레이어: pixi 포인터 이벤트를 "주 동작/보조 동작/드래그 오버"로만 번역한다.
+        // 우클릭=보조 동작이라는 매핑이 이 한 줄에만 있고, 실제 규칙은 controller가 갖는다.
         bg.on('pointerdown', (e: FederatedPointerEvent) => {
-          if (e.button === 2) {
-            this.toggleFlag(cell);
-          } else if (cell.visual === GroundVisual.REVEALED) {
-            this.chordSelect(cell);
-          } else {
-            this.beginDragSelect(cell);
-          }
+          if (e.button === 2) this.controller.onSecondaryAction(cell);
+          else this.controller.onPrimaryAction(cell);
         });
-        // 드래그로 지나간 미공개 칸에 현재 드래그 모드(선택/해제)를 적용한다.
-        bg.on('pointerover', () => this.applyDragMode(cell));
+        bg.on('pointerover', () => this.controller.onDragOver(cell));
       }
       container.addChild(bg);
 
@@ -296,30 +201,42 @@ export class GameView {
     const footerY = this.app.screen.height - FOOTER_HEIGHT + 8;
     let cursorX = BOARD_MARGIN;
 
-    const revealEnabled = this.selected.size > 0;
+    const revealEnabled = this.controller.selected.size > 0;
     const revealButton = this.makeButton(
-      `공개 (${this.selected.size}칸)`,
+      `공개 (${this.controller.selected.size}칸)`,
       revealEnabled,
-      () => this.confirmReveal()
+      () => this.controller.confirmReveal()
     );
     revealButton.position.set(cursorX, footerY);
     container.addChild(revealButton);
     cursorX += revealButton.width + 12;
 
-    const restartButton = this.makeButton('재시작', true, () => this.restart());
+    const restartButton = this.makeButton('재시작', true, () => this.resizeAndRestart());
     restartButton.position.set(cursorX, footerY);
     container.addChild(restartButton);
     cursorX += restartButton.width + 20;
 
-    for (const name of Object.keys(PRESETS)) {
-      const isActive = name === this.currentPresetName;
-      const tab = this.makeButton(name, true, () => this.restart(name), isActive);
+    for (const name of PRESET_NAMES) {
+      const isActive = name === this.controller.presetName;
+      const tab = this.makeButton(name, true, () => this.resizeAndRestart(name), isActive);
       tab.position.set(cursorX, footerY);
       container.addChild(tab);
       cursorX += tab.width + 8;
     }
 
     return { container, contentWidth: cursorX };
+  }
+
+  /**
+   * 프리셋이 바뀌면 보드 크기도 바뀌므로 restart 후 캔버스 리사이즈까지 해준다.
+   * controller.restart()가 곧바로 notify → render()를 한 번 트리거하지만 그건 아직
+   * 리사이즈 전 캔버스 크기로 그려지므로, resizeToCurrentBoard() 다음에 render()를
+   * 한 번 더 호출해 최종적으로 올바른 크기로 다시 그린다.
+   */
+  private resizeAndRestart(presetName?: (typeof PRESET_NAMES)[number]): void {
+    this.controller.restart(presetName);
+    this.resizeToCurrentBoard();
+    this.render();
   }
 
   private makeButton(label: string, enabled: boolean, onClick: () => void, active = false): Container {
