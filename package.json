@@ -1,14 +1,36 @@
 {
   "name": "nan-2026",
+  "version": "1.0.0",
   "private": true,
-  "version": "0.0.1",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
+  "main": "index",
   "scripts": {
-    "dev": "npm run dev --workspace=apps/shell",
-    "build": "npm run build --workspace=apps/shell",
-    "preview": "npm run preview --workspace=apps/shell"
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "dev": "expo start --web",
+    "build": "expo export -p web",
+    "test": "vitest run",
+    "sim": "tsx src/engine/sim/run.ts"
+  },
+  "dependencies": {
+    "@expo-google-fonts/noto-sans-kr": "^0.4.3",
+    "@expo/metro-runtime": "^57.0.6",
+    "@shopify/react-native-skia": "^2.9.0",
+    "expo": "~57.0.7",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.0",
+    "react-native-gesture-handler": "^3.1.0",
+    "react-native-safe-area-context": "^5.8.0",
+    "react-native-web": "^0.21.2"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3",
+    "vitest": "^2.1.0",
+    "fast-check": "^3.22.0",
+    "tsx": "^4.19.0"
   }
 }

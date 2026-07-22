@@ -1,17 +1,28 @@
 import React, { useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { LayoutChangeEvent } from 'react-native';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
-import { Canvas, Picture, PaintStyle, Skia } from '@shopify/react-native-skia';
+import { Canvas, Picture, PaintStyle, Skia, useFont } from '@shopify/react-native-skia';
 import type { SkFont, SkPaint, SkPicture } from '@shopify/react-native-skia';
+// 패키지 루트(barrel) 대신 특정 굵기 하위 경로에서 바로 import한다 — 루트로 가져오면
+// Metro가 트리쉐이킹을 못 해 안 쓰는 다른 8개 굵기(각 6.2MB)까지 전부 번들에 들어간다.
+import { NotoSansKR_400Regular } from '@expo-google-fonts/noto-sans-kr/400Regular';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { chebyshevDistance, GameBController, GamePhase, isAdjacent8, neighbors8, ORIGIN, vecKey } from 'game-b-core';
-import type { Vec2 } from 'game-b-core';
+import { chebyshevDistance, GameBController, GamePhase, isAdjacent8, neighbors8, ORIGIN, vecKey } from '../engine';
+import type { Vec2 } from '../engine';
 import { BOARD_MARGIN, type CanvasLayout, computeLayout, FOOTER_HEIGHT, offsetScreenPos, screenToOffset, VIEW_RADIUS_X, VIEW_RADIUS_Y } from './layout';
 
-// game-b의 Skia 뷰 — game-a(GameAScreen.tsx)와 완전히 같은 패턴을 따른다: 상태·규칙은
-// GameBController(game-b-core)에 있고, 이 파일은 "Skia로 그리기"와 "제스처를 controller
-// 호출로 번역하기"만 한다. game-a와 달리 드래그 다중 선택이 없어 팬 제스처가 필요 없다 —
-// 탭=이동, 롱프레스=해체 두 가지만 있으면 된다(§6.4의 마우스 좌/우클릭에 대응).
+// 유일한 화면의 Skia 뷰. 상태·규칙은 src/engine(GameBController)에 있고, 이 파일은
+// "Skia로 그리기"와 "제스처를 controller 호출로 번역하기"만 한다. 드래그 다중 선택은
+// 없다 — 탭=이동, 롱프레스=해체 두 가지만 있으면 된다(§6.4의 마우스 좌/우클릭에 대응).
+// A(지뢰추적자)에서 나온 드래그선택/코드오픈, 지뢰 이동 같은 기능은 src/mechanics에
+// 재사용 가능한 형태로만 옮겨져 있고 아직 이 화면에 연결되지 않았다
+// ([[decisions/2026-07-22-cherry-pick-a-into-b]] 참고).
+//
+// 폰트: 웹(CanvasKit)은 네이티브와 달리 기본 내장 폰트가 전혀 없어 Skia.Font(undefined, size)
+// 로는 텍스트가 아예 안 그려진다 — 반드시 실제 폰트 파일을 useFont()로 로드해야 한다.
+// 한글(HUD 문구, 버튼 라벨)을 그려야 하므로 Noto Sans KR을 번들(@expo-google-fonts
+// /noto-sans-kr, MIT+OFL-1.1)해서 쓴다. useFont는 로드 전엔 null을 반환하므로, 폰트가
+// 전부 준비되기 전까지는 캔버스를 그리지 않는다(아래 컴포넌트의 fontsReady 가드).
 
 const COLOR = {
   background: '#0b0c10',
@@ -31,11 +42,13 @@ const COLOR = {
   buttonDisabled: '#14151a',
 } as const;
 
-const titleFont = Skia.Font(undefined, 17);
-const metaFont = Skia.Font(undefined, 12);
-const cellFont = Skia.Font(undefined, 13);
-const buttonFont = Skia.Font(undefined, 14);
-const hintFont = Skia.Font(undefined, 11);
+interface Fonts {
+  title: SkFont;
+  meta: SkFont;
+  cell: SkFont;
+  button: SkFont;
+  hint: SkFont;
+}
 
 function fillPaint(color: string): SkPaint {
   const paint = Skia.Paint();
@@ -75,11 +88,12 @@ function drawButton(
   label: string,
   x: number,
   y: number,
+  font: SkFont,
   onTap: () => void
 ): number {
   const paddingX = 14;
   const paddingY = 10;
-  const textBounds = buttonFont.measureText(label);
+  const textBounds = font.measureText(label);
   const width = textBounds.width + paddingX * 2;
   const height = 20 + paddingY * 2;
 
@@ -87,8 +101,8 @@ function drawButton(
   canvas.drawRRect(bg, fillPaint(COLOR.button));
   canvas.drawRRect(bg, strokePaint(COLOR.buttonBorder, 1));
 
-  const origin = centeredTextOrigin(buttonFont, label, x + width / 2, y + height / 2);
-  canvas.drawText(label, origin.x, origin.y, fillPaint(COLOR.text), buttonFont);
+  const origin = centeredTextOrigin(font, label, x + width / 2, y + height / 2);
+  canvas.drawText(label, origin.x, origin.y, fillPaint(COLOR.text), font);
 
   regions.push({ x, y, width, height, onTap });
   return width;
@@ -99,7 +113,7 @@ function statusText(controller: GameBController): string {
   return '정찰 중';
 }
 
-function buildScene(controller: GameBController, layout: CanvasLayout): Scene {
+function buildScene(controller: GameBController, layout: CanvasLayout, fonts: Fonts): Scene {
   const recorder = Skia.PictureRecorder();
   const canvas = recorder.beginRecording(Skia.XYWHRect(0, 0, layout.canvasWidth, layout.canvasHeight));
   const regions: TapRegion[] = [];
@@ -111,13 +125,13 @@ function buildScene(controller: GameBController, layout: CanvasLayout): Scene {
   canvas.drawRect(Skia.XYWHRect(0, 0, layout.canvasWidth, layout.canvasHeight), fillPaint(COLOR.background));
 
   // HUD
-  canvas.drawText('지뢰밭 정찰대 (B) — Minefield Scout', BOARD_MARGIN, 24, fillPaint(COLOR.text), titleFont);
+  canvas.drawText('지뢰밭 정찰대 (B) — Minefield Scout', BOARD_MARGIN, 24, fillPaint(COLOR.text), fonts.title);
   const dist = chebyshevDistance(ORIGIN, player);
   const hearts = '♥'.repeat(Math.max(0, game.lives)) + '♡'.repeat(Math.max(0, game.params.lives - game.lives));
   const meta =
     `행동 ${game.actionsRemaining}/${game.params.actionBudget}  ·  라이프 ${hearts}  ·  ` +
     `점수 ${game.score}  ·  콤보 ${game.combo}  ·  거리 ${dist}  ·  시드 ${controller.seed}  ·  ${statusText(controller)}`;
-  canvas.drawText(meta, BOARD_MARGIN, 46, fillPaint(COLOR.muted), metaFont);
+  canvas.drawText(meta, BOARD_MARGIN, 46, fillPaint(COLOR.muted), fonts.meta);
 
   // 보드(플레이어 중심 뷰포트)
   const currentView = new Set<string>([vecKey(player), ...neighbors8(player).map(vecKey)]);
@@ -157,7 +171,6 @@ function buildScene(controller: GameBController, layout: CanvasLayout): Scene {
         }
 
         // 게임 오버: 관측했던 범위 안에서 아직 남아 있는(미포획) 지뢰를 공개 (§6.3).
-        // 이모지 대신 텍스트만 쓴다(기본 Skia 폰트의 색 이모지 미지원 가능성, GameAScreen 상단 주석 참고).
         if (gameOver && game.world.isMine(pos)) {
           label = 'X';
           labelColor = COLOR.text;
@@ -173,8 +186,8 @@ function buildScene(controller: GameBController, layout: CanvasLayout): Scene {
       }
 
       if (label) {
-        const origin = centeredTextOrigin(cellFont, label, screenX + cellSize / 2, screenY + cellSize / 2);
-        canvas.drawText(label, origin.x, origin.y, fillPaint(labelColor), cellFont);
+        const origin = centeredTextOrigin(fonts.cell, label, screenX + cellSize / 2, screenY + cellSize / 2);
+        canvas.drawText(label, origin.x, origin.y, fillPaint(labelColor), fonts.cell);
       }
 
       if (dx === 0 && dy === 0) {
@@ -190,9 +203,9 @@ function buildScene(controller: GameBController, layout: CanvasLayout): Scene {
 
   // 푸터
   const footerY = layout.canvasHeight - FOOTER_HEIGHT + 10;
-  const restartWidth = drawButton(canvas, regions, '재시작', BOARD_MARGIN, footerY, () => controller.restart());
+  const restartWidth = drawButton(canvas, regions, '재시작', BOARD_MARGIN, footerY, fonts.button, () => controller.restart());
   const hintX = BOARD_MARGIN + restartWidth + 16;
-  canvas.drawText('탭: 이동선언 · 롱프레스: 해체선언 · 확정 칸은 후퇴', hintX, footerY + 26, fillPaint(COLOR.muted), hintFont);
+  canvas.drawText('탭: 이동선언 · 롱프레스: 해체선언 · 확정 칸은 후퇴', hintX, footerY + 26, fillPaint(COLOR.muted), fonts.hint);
 
   const picture = recorder.finishRecordingAsPicture();
   return { picture, regions };
@@ -200,12 +213,11 @@ function buildScene(controller: GameBController, layout: CanvasLayout): Scene {
 
 const MIN_CANVAS_MARGIN = 16;
 
-export function GameBScreen(): React.JSX.Element {
+export function GameScreen(): React.JSX.Element {
   const { width: windowWidth } = useWindowDimensions();
 
-  // game-a와 동일한 이유([[../gameA/GameAScreen.tsx]] 참고) — 셸 스테이지 박스 등 폭이
-  // 제한된 컨테이너 안에 내장될 수 있으므로 window 전체 폭 대신 자기 자신의 실제
-  // onLayout 폭을 기준으로 반응형 계산한다.
+  // App.tsx의 스테이지 박스 등 폭이 제한된 컨테이너 안에 내장되므로 window 전체 폭 대신
+  // 자기 자신의 실제 onLayout 폭을 기준으로 반응형 계산한다.
   const [measuredWidth, setMeasuredWidth] = useState(windowWidth);
   const onContainerLayout = (e: LayoutChangeEvent): void => {
     const w = e.nativeEvent.layout.width;
@@ -221,14 +233,25 @@ export function GameBScreen(): React.JSX.Element {
     () => controller.version
   );
 
+  // useFont는 로드 완료 전엔 null을 반환한다 — 전부 준비될 때까지 캔버스를 그리지 않는다.
+  const titleFont = useFont(NotoSansKR_400Regular, 17);
+  const metaFont = useFont(NotoSansKR_400Regular, 12);
+  const cellFont = useFont(NotoSansKR_400Regular, 13);
+  const buttonFont = useFont(NotoSansKR_400Regular, 14);
+  const hintFont = useFont(NotoSansKR_400Regular, 11);
+  const fonts: Fonts | null =
+    titleFont && metaFont && cellFont && buttonFont && hintFont
+      ? { title: titleFont, meta: metaFont, cell: cellFont, button: buttonFont, hint: hintFont }
+      : null;
+
   const availableWidth = Math.min(measuredWidth - MIN_CANVAS_MARGIN * 2, 720);
   const layout = useMemo(() => computeLayout(availableWidth), [availableWidth]);
 
-  const scene = useMemo(
-    () => buildScene(controller, layout),
+  const scene = useMemo(() => {
+    if (!fonts) return null;
+    return buildScene(controller, layout, fonts);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [controller, layout, controller.version]
-  );
+  }, [controller, layout, controller.version, fonts]);
 
   const findRegion = (regions: TapRegion[], x: number, y: number): TapRegion | undefined =>
     regions.find((r) => x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height);
@@ -242,6 +265,7 @@ export function GameBScreen(): React.JSX.Element {
   // ── 입력 레이어(터치 제스처 → controller 호출) ──────────────────────────
   // 탭 = 주 동작(이동 선언), 롱프레스 = 보조 동작(해체 선언) — 마우스 좌/우클릭과 대응.
   const tapGesture = Gesture.Tap().onEnd((e) => {
+    if (!scene) return;
     const region = findRegion(scene.regions, e.x, e.y);
     if (region) {
       region.onTap();
@@ -263,13 +287,15 @@ export function GameBScreen(): React.JSX.Element {
 
   return (
     <View style={styles.container} onLayout={onContainerLayout}>
-      <GestureDetector gesture={composedGesture}>
-        <View style={{ width: layout.canvasWidth, height: layout.canvasHeight }}>
-          <Canvas style={{ width: layout.canvasWidth, height: layout.canvasHeight }}>
-            <Picture picture={scene.picture} />
-          </Canvas>
-        </View>
-      </GestureDetector>
+      {scene && (
+        <GestureDetector gesture={composedGesture}>
+          <View style={{ width: layout.canvasWidth, height: layout.canvasHeight }}>
+            <Canvas style={{ width: layout.canvasWidth, height: layout.canvasHeight }}>
+              <Picture picture={scene.picture} />
+            </Canvas>
+          </View>
+        </GestureDetector>
+      )}
     </View>
   );
 }
