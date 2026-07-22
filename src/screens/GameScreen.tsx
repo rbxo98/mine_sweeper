@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import React, { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { LayoutChangeEvent } from 'react-native';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Canvas, Picture, PaintStyle, Skia, useFont } from '@shopify/react-native-skia';
@@ -7,6 +7,7 @@ import type { SkFont, SkPaint, SkPicture } from '@shopify/react-native-skia';
 // Metro가 트리쉐이킹을 못 해 안 쓰는 다른 8개 굵기(각 6.2MB)까지 전부 번들에 들어간다.
 import { NotoSansKR_400Regular } from '@expo-google-fonts/noto-sans-kr/400Regular';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { DIRECTION_DELTA, useKeyboardInput, type GameInputAction } from '../input';
 import { GameBController, GamePhase, isAdjacent4, manhattanDistance, neighbors8, ORIGIN, vecKey } from '../engine';
 import type { Vec2 } from '../engine';
 import { BOARD_MARGIN, type CanvasLayout, computeLayout, FOOTER_HEIGHT, offsetScreenPos, screenToOffset, VIEW_RADIUS_X, VIEW_RADIUS_Y } from './layout';
@@ -261,6 +262,25 @@ export function GameScreen(): React.JSX.Element {
     if (!offset) return null;
     return { x: controller.game.player.x + offset.dx, y: controller.game.player.y + offset.dy };
   };
+
+  // ── 입력 레이어: 키보드(물리 키 → 추상 GameInputAction → controller 호출) ──────
+  // "무슨 키 = 무슨 액션"은 src/input/keymap.ts의 defaultKeyBindings 한 곳에만 있다 —
+  // 여기서는 그 결과인 추상 액션(방향+주/보조, 재시작)만 다룬다. 나중에 설정 화면이
+  // 키맵을 바꿔도 이 콜백은 손댈 필요가 없다.
+  const handleKeyboardAction = useCallback(
+    (action: GameInputAction): void => {
+      if (action.type === 'restart') {
+        controller.restart();
+        return;
+      }
+      const { dx, dy } = DIRECTION_DELTA[action.direction];
+      const target: Vec2 = { x: controller.game.player.x + dx, y: controller.game.player.y + dy };
+      if (action.kind === 'primary') controller.onPrimaryAction(target);
+      else controller.onSecondaryAction(target);
+    },
+    [controller]
+  );
+  useKeyboardInput(handleKeyboardAction);
 
   // ── 입력 레이어(터치 제스처 → controller 호출) ──────────────────────────
   // 탭 = 주 동작(이동 선언), 롱프레스 = 보조 동작(해체 선언) — 마우스 좌/우클릭과 대응.
