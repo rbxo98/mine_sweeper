@@ -5,3 +5,4 @@ export * from './turnChain';
 export * from './params';
 export * from './world';
 export * from './game';
+export * from './controller';

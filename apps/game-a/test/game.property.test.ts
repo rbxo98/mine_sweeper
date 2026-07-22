@@ -2,8 +2,8 @@
 // 무작위 행동 시퀀스를 여러 시드로 반복해 불변식이 항상 유지되는지 검증한다.
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import { createParams, createRng, EXPLOSION_LABEL, Game, GroundVisual, Phase, vecKey } from '../src/object';
-import type { Params, Vec2 } from '../src/object';
+import { createParams, createRng, EXPLOSION_LABEL, Game, GroundVisual, Phase, vecKey } from 'game-a-core';
+import type { Params, Vec2 } from 'game-a-core';
 
 const PARAMS: Params = createParams({ width: 7, height: 7, mineCount: 4, bundleLife: 2, stayBias: 1.0 });
 const STEPS_PER_GAME = 40;

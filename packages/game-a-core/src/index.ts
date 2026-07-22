@@ -5,3 +5,4 @@ export * from './mine';
 export * from './bundle';
 export * from './board';
 export * from './game';
+export * from './controller';

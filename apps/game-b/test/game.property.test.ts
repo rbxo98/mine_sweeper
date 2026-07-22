@@ -2,8 +2,8 @@
 // 확정 칸 상태 불변성. 무작위 시드·무작위 행동 시퀀스를 반복해 불변식이 항상 유지되는지 검증한다.
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import { CellStatus, createParams, Game, GamePhase, neighbors8, World } from '../src/object';
-import type { Params, Vec2 } from '../src/object';
+import { CellStatus, createParams, Game, GamePhase, neighbors8, World } from 'game-b-core';
+import type { Params, Vec2 } from 'game-b-core';
 
 const PARAMS: Params = createParams({ actionBudget: 40, lives: 3 });
 

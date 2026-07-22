@@ -3,9 +3,9 @@
 // 회피형/추론형 에이전트와 파라미터 스윕은 P3에서 추가한다.
 // 맵 생성(worldSeed)은 재현성이 필요하지만, 에이전트의 선택 자체는 게임 코어가 아니므로
 // game-a sim과 동일하게 Math.random()을 그대로 쓴다.
-import { createParams, Game, GamePhase } from '../src/object';
-import type { Params, Vec2 } from '../src/object';
-import { neighbors8 } from '../src/object';
+import { createParams, Game, GamePhase } from 'game-b-core';
+import type { Params, Vec2 } from 'game-b-core';
+import { neighbors8 } from 'game-b-core';
 
 function isConfirmed(game: Game, pos: Vec2): boolean {
   const rec = game.observations.get(`${pos.x},${pos.y}`);

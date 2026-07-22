@@ -1,8 +1,8 @@
 // 헤드리스 시뮬레이터 (§10.2, §11 P1 범위): src/object만 import하고 DOM에 의존하지 않는다.
 // 지금은 무작위 에이전트로 Game 클래스가 끝까지 정상 동작하는지 확인하는 용도.
 // 휴리스틱/정밀 추적 에이전트와 파라미터 스윕은 P3에서 추가한다.
-import { createParams, createRng, Game, Phase } from '../src/object';
-import type { Params, Vec2 } from '../src/object';
+import { createParams, createRng, Game, Phase } from 'game-a-core';
+import type { Params, Vec2 } from 'game-a-core';
 
 function allHiddenCells(game: Game): Vec2[] {
   return game.board.allCells().filter((c) => c.isHidden).map((c) => c.position);
