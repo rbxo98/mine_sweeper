@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { LayoutChangeEvent } from 'react-native';
-import { StyleSheet, View, useWindowDimensions } from 'react-native';
-import { Canvas, Picture, PaintStyle, Skia, useFont } from '@shopify/react-native-skia';
+import { StyleSheet, View } from 'react-native';
+import { Canvas, Group, Picture, PaintStyle, Skia, useFont } from '@shopify/react-native-skia';
 import type { SkFont, SkPaint, SkPicture } from '@shopify/react-native-skia';
 // 패키지 루트(barrel) 대신 특정 굵기 하위 경로에서 바로 import한다 — 루트로 가져오면
 // Metro가 트리쉐이킹을 못 해 안 쓰는 다른 8개 굵기(각 6.2MB)까지 전부 번들에 들어간다.
@@ -10,7 +10,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { DIRECTION_DELTA, useKeyboardInput, type GameInputAction } from '../input';
 import { GameBController, GamePhase, isAdjacent4, manhattanDistance, neighbors8, ORIGIN, vecKey } from '../engine';
 import type { Vec2 } from '../engine';
-import { BOARD_MARGIN, type CanvasLayout, computeLayout, FOOTER_HEIGHT, offsetScreenPos, screenToOffset, VIEW_RADIUS_X, VIEW_RADIUS_Y } from './layout';
+import { BOARD_MARGIN, type CanvasLayout, computeFixedLayout, FOOTER_HEIGHT, offsetScreenPos, screenToOffset, VIEW_RADIUS_X, VIEW_RADIUS_Y } from './layout';
 
 // 유일한 화면의 Skia 뷰. 상태·규칙은 src/engine(GameBController)에 있고, 이 파일은
 // "Skia로 그리기"와 "제스처를 controller 호출로 번역하기"만 한다. 드래그 다중 선택은
@@ -44,7 +44,6 @@ const COLOR = {
 } as const;
 
 interface Fonts {
-  title: SkFont;
   meta: SkFont;
   cell: SkFont;
   button: SkFont;
@@ -125,14 +124,13 @@ function buildScene(controller: GameBController, layout: CanvasLayout, fonts: Fo
 
   canvas.drawRect(Skia.XYWHRect(0, 0, layout.canvasWidth, layout.canvasHeight), fillPaint(COLOR.background));
 
-  // HUD
-  canvas.drawText('지뢰밭 정찰대 (B) — Minefield Scout', BOARD_MARGIN, 24, fillPaint(COLOR.text), fonts.title);
+  // HUD (게임 정보만 — 타이틀 텍스트는 웹 chrome 제거와 함께 없앴다)
   const dist = manhattanDistance(ORIGIN, player);
   const hearts = '♥'.repeat(Math.max(0, game.lives)) + '♡'.repeat(Math.max(0, game.params.lives - game.lives));
   const meta =
     `행동 ${game.actionsRemaining}/${game.params.actionBudget}  ·  라이프 ${hearts}  ·  ` +
     `점수 ${game.score}  ·  콤보 ${game.combo}  ·  거리 ${dist}  ·  시드 ${controller.seed}  ·  ${statusText(controller)}`;
-  canvas.drawText(meta, BOARD_MARGIN, 46, fillPaint(COLOR.muted), fonts.meta);
+  canvas.drawText(meta, BOARD_MARGIN, 24, fillPaint(COLOR.muted), fonts.meta);
 
   // 보드(플레이어 중심 뷰포트)
   const currentView = new Set<string>([vecKey(player), ...neighbors8(player).map(vecKey)]);
@@ -212,17 +210,17 @@ function buildScene(controller: GameBController, layout: CanvasLayout, fonts: Fo
   return { picture, regions };
 }
 
-const MIN_CANVAS_MARGIN = 16;
-
 export function GameScreen(): React.JSX.Element {
-  const { width: windowWidth } = useWindowDimensions();
-
-  // App.tsx의 스테이지 박스 등 폭이 제한된 컨테이너 안에 내장되므로 window 전체 폭 대신
-  // 자기 자신의 실제 onLayout 폭을 기준으로 반응형 계산한다.
-  const [measuredWidth, setMeasuredWidth] = useState(windowWidth);
+  // 캔버스 논리 해상도는 고정이다 — 화면(컨테이너) 크기만 onLayout으로 재서, 비율을
+  // 유지한 채 그 크기에 맞는 스케일(scale)을 구한다("contain" 방식: 잘리거나 찌그러지지
+  // 않고, 종횡비가 안 맞으면 한쪽에 여백이 남는다). 셀 크기·좌표 계산 등 게임 로직은
+  // 이 스케일과 무관하게 항상 고정 해상도 기준으로만 돈다.
+  const [measuredSize, setMeasuredSize] = useState({ width: 0, height: 0 });
   const onContainerLayout = (e: LayoutChangeEvent): void => {
-    const w = e.nativeEvent.layout.width;
-    if (w > 0 && w !== measuredWidth) setMeasuredWidth(w);
+    const { width, height } = e.nativeEvent.layout;
+    if (width > 0 && height > 0 && (width !== measuredSize.width || height !== measuredSize.height)) {
+      setMeasuredSize({ width, height });
+    }
   };
 
   const controllerRef = useRef<GameBController | null>(null);
@@ -235,18 +233,18 @@ export function GameScreen(): React.JSX.Element {
   );
 
   // useFont는 로드 완료 전엔 null을 반환한다 — 전부 준비될 때까지 캔버스를 그리지 않는다.
-  const titleFont = useFont(NotoSansKR_400Regular, 17);
   const metaFont = useFont(NotoSansKR_400Regular, 12);
   const cellFont = useFont(NotoSansKR_400Regular, 13);
   const buttonFont = useFont(NotoSansKR_400Regular, 14);
   const hintFont = useFont(NotoSansKR_400Regular, 11);
   const fonts: Fonts | null =
-    titleFont && metaFont && cellFont && buttonFont && hintFont
-      ? { title: titleFont, meta: metaFont, cell: cellFont, button: buttonFont, hint: hintFont }
-      : null;
+    metaFont && cellFont && buttonFont && hintFont ? { meta: metaFont, cell: cellFont, button: buttonFont, hint: hintFont } : null;
 
-  const availableWidth = Math.min(measuredWidth - MIN_CANVAS_MARGIN * 2, 720);
-  const layout = useMemo(() => computeLayout(availableWidth), [availableWidth]);
+  const layout = useMemo(() => computeFixedLayout(), []);
+  const scale =
+    measuredSize.width > 0 && measuredSize.height > 0
+      ? Math.min(measuredSize.width / layout.canvasWidth, measuredSize.height / layout.canvasHeight)
+      : 0;
 
   const scene = useMemo(() => {
     if (!fonts) return null;
@@ -284,14 +282,18 @@ export function GameScreen(): React.JSX.Element {
 
   // ── 입력 레이어(터치 제스처 → controller 호출) ──────────────────────────
   // 탭 = 주 동작(이동 선언), 롱프레스 = 보조 동작(해체 선언) — 마우스 좌/우클릭과 대응.
+  // 제스처 좌표는 화면에 표시된(스케일된) 크기 기준이라, 캔버스 논리 좌표로 쓰려면
+  // scale로 나눠서 되돌려야 한다(레터박스 스케일과 무관하게 항상 정확한 칸을 짚도록).
   const tapGesture = Gesture.Tap().onEnd((e) => {
-    if (!scene) return;
-    const region = findRegion(scene.regions, e.x, e.y);
+    if (!scene || scale <= 0) return;
+    const x = e.x / scale;
+    const y = e.y / scale;
+    const region = findRegion(scene.regions, x, y);
     if (region) {
       region.onTap();
       return;
     }
-    const target = targetAt(e.x, e.y);
+    const target = targetAt(x, y);
     if (target) controller.onPrimaryAction(target);
   });
 
@@ -299,19 +301,25 @@ export function GameScreen(): React.JSX.Element {
     .minDuration(350)
     .maxDistance(12)
     .onStart((e) => {
-      const target = targetAt(e.x, e.y);
+      if (scale <= 0) return;
+      const target = targetAt(e.x / scale, e.y / scale);
       if (target) controller.onSecondaryAction(target);
     });
 
   const composedGesture = Gesture.Race(longPressGesture, tapGesture);
 
+  const displayWidth = layout.canvasWidth * scale;
+  const displayHeight = layout.canvasHeight * scale;
+
   return (
     <View style={styles.container} onLayout={onContainerLayout}>
-      {scene && (
+      {scene && scale > 0 && (
         <GestureDetector gesture={composedGesture}>
-          <View style={{ width: layout.canvasWidth, height: layout.canvasHeight }}>
-            <Canvas style={{ width: layout.canvasWidth, height: layout.canvasHeight }}>
-              <Picture picture={scene.picture} />
+          <View style={{ width: displayWidth, height: displayHeight }}>
+            <Canvas style={{ width: displayWidth, height: displayHeight }}>
+              <Group transform={[{ scale }]}>
+                <Picture picture={scene.picture} />
+              </Group>
             </Canvas>
           </View>
         </GestureDetector>
