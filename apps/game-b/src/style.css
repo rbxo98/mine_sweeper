@@ -1,0 +1,19 @@
+/* 게임은 전부 캔버스 안에서 그린다 — 여기는 캔버스를 중앙에 배치하는 것만 담당한다.
+   ([[decisions/2026-07-22-game-b-canvas-unification]]) */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #0b0c10;
+}
+
+#app {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100svh;
+}
+
+#app canvas {
+  display: block;
+}

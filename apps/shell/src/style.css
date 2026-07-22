@@ -1,0 +1,71 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #111318;
+  color: #f2f2f2;
+}
+
+.shell {
+  /* 게임 A 도전 프리셋(30x16)이 실제로 필요로 하는 너비(~750px)보다 넉넉하게 잡는다 —
+     좁게 잡아서 안쪽 iframe에 스크롤이 생기는 것을 방지 (2026-07-22). */
+  max-width: 960px;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.shell__header h1 {
+  margin: 0 0 0.75rem;
+  font-size: 1.4rem;
+}
+
+.shell__tabs {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.shell__tab {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border: 1px solid #2a2d35;
+  border-radius: 10px;
+  background: #181a20;
+  color: #9aa0ab;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.shell__tab:hover {
+  border-color: #4d7cff;
+}
+
+.shell__tab--active {
+  background: #23262e;
+  border-color: #4d7cff;
+  color: #f2f2f2;
+}
+
+.shell__stage {
+  border: 1px solid #2a2d35;
+  border-radius: 12px;
+  background: #0b0c10;
+  overflow: hidden;
+}
+
+.shell__frame {
+  display: block;
+  width: 100%;
+  /* 두 게임의 실제 최대 높이(게임 A 최대 534px, 게임 B 548px)보다 여유 있게 잡아 안쪽
+     스크롤이 생기지 않게 한다. */
+  height: 680px;
+  border: 0;
+}

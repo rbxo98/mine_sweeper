@@ -1,0 +1,13 @@
+{
+  "name": "nan-2026",
+  "private": true,
+  "version": "0.0.1",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=apps/shell",
+    "build": "npm run build --workspace=apps/shell",
+    "preview": "npm run preview --workspace=apps/shell"
+  }
+}
