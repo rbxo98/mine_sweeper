@@ -1,4 +1,4 @@
-import { isAdjacent8 } from './geometry';
+import { isAdjacent4 } from './geometry';
 import { CellStatus, Game, GamePhase } from './game';
 import { createParams } from './params';
 import { type Vec2, vecKey } from './Vec2';
@@ -75,7 +75,7 @@ export class GameBController {
   /** 인접 칸에 대한 이동/해체 선언, 또는 확정 칸으로의 후퇴 (§5.3, §6.4) */
   private act(target: Vec2, wantsDefuse: boolean): void {
     if (this._game.phase !== GamePhase.PLAYING) return;
-    if (!isAdjacent8(this._game.player, target)) return;
+    if (!isAdjacent4(this._game.player, target)) return;
 
     if (this.isConfirmedAt(target)) {
       this._game.retreat(target);

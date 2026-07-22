@@ -5,7 +5,7 @@
 // game-a sim과 동일하게 Math.random()을 그대로 쓴다.
 import { createParams, Game, GamePhase } from '../index';
 import type { Params, Vec2 } from '../index';
-import { neighbors8 } from '../index';
+import { neighbors4 } from '../index';
 
 function isConfirmed(game: Game, pos: Vec2): boolean {
   const rec = game.observations.get(`${pos.x},${pos.y}`);
@@ -17,7 +17,7 @@ function playOneGame(worldSeed: number, params: Params) {
   const maxSteps = params.actionBudget + 5; // 안전장치 — 정상 동작이면 actionBudget 안에서 끝난다.
 
   for (let step = 0; step < maxSteps && game.phase === GamePhase.PLAYING; step++) {
-    const options = neighbors8(game.player);
+    const options = neighbors4(game.player);
     const target = options[Math.floor(Math.random() * options.length)]!;
 
     if (isConfirmed(game, target)) {

@@ -2,7 +2,7 @@
 // 확정 칸 상태 불변성. 무작위 시드·무작위 행동 시퀀스를 반복해 불변식이 항상 유지되는지 검증한다.
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import { CellStatus, createParams, Game, GamePhase, neighbors8, World } from '../index';
+import { CellStatus, createParams, Game, GamePhase, neighbors4, neighbors8, World } from '../index';
 import type { Params, Vec2 } from '../index';
 
 const PARAMS: Params = createParams({ actionBudget: 40, lives: 3 });
@@ -63,7 +63,7 @@ describe('World 청크 생성', () => {
 });
 
 function randomAgentStep(game: Game): void {
-  const options = neighbors8(game.player);
+  const options = neighbors4(game.player);
   const target = options[Math.floor(Math.random() * options.length)]!;
   const rec = game.observations.get(key(target));
   const confirmed = rec !== undefined && rec.status !== CellStatus.OBSERVED;
@@ -122,6 +122,30 @@ describe('Game 턴 회계 불변식', () => {
         }
       }),
       { numRuns: 60 }
+    );
+  });
+
+  it('대각선 인접 칸은 더 이상 행동 대상이 아니다 (§5.8 기획 변경: 대각 이동 제거)', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 0, max: 1_000_000 }), (seed) => {
+        const game = new Game(PARAMS, seed);
+        const player = game.player;
+        const diagonalTargets: Vec2[] = [
+          { x: player.x + 1, y: player.y + 1 },
+          { x: player.x + 1, y: player.y - 1 },
+          { x: player.x - 1, y: player.y + 1 },
+          { x: player.x - 1, y: player.y - 1 },
+        ];
+
+        for (const target of diagonalTargets) {
+          const before = { actionsRemaining: game.actionsRemaining, player: game.player, lives: game.lives };
+          game.declareMove(target);
+          expect(game.actionsRemaining).toBe(before.actionsRemaining);
+          expect(game.player).toEqual(before.player);
+          expect(game.lives).toBe(before.lives);
+        }
+      }),
+      { numRuns: 30 }
     );
   });
 

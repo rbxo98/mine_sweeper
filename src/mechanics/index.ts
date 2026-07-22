@@ -4,3 +4,4 @@
 export * from './rng';
 export * from './selection';
 export * from './wander';
+export * from './diagonalMovement';

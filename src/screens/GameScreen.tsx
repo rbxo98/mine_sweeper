@@ -7,7 +7,7 @@ import type { SkFont, SkPaint, SkPicture } from '@shopify/react-native-skia';
 // Metro가 트리쉐이킹을 못 해 안 쓰는 다른 8개 굵기(각 6.2MB)까지 전부 번들에 들어간다.
 import { NotoSansKR_400Regular } from '@expo-google-fonts/noto-sans-kr/400Regular';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { chebyshevDistance, GameBController, GamePhase, isAdjacent8, neighbors8, ORIGIN, vecKey } from '../engine';
+import { GameBController, GamePhase, isAdjacent4, manhattanDistance, neighbors8, ORIGIN, vecKey } from '../engine';
 import type { Vec2 } from '../engine';
 import { BOARD_MARGIN, type CanvasLayout, computeLayout, FOOTER_HEIGHT, offsetScreenPos, screenToOffset, VIEW_RADIUS_X, VIEW_RADIUS_Y } from './layout';
 
@@ -126,7 +126,7 @@ function buildScene(controller: GameBController, layout: CanvasLayout, fonts: Fo
 
   // HUD
   canvas.drawText('지뢰밭 정찰대 (B) — Minefield Scout', BOARD_MARGIN, 24, fillPaint(COLOR.text), fonts.title);
-  const dist = chebyshevDistance(ORIGIN, player);
+  const dist = manhattanDistance(ORIGIN, player);
   const hearts = '♥'.repeat(Math.max(0, game.lives)) + '♡'.repeat(Math.max(0, game.params.lives - game.lives));
   const meta =
     `행동 ${game.actionsRemaining}/${game.params.actionBudget}  ·  라이프 ${hearts}  ·  ` +
@@ -143,7 +143,7 @@ function buildScene(controller: GameBController, layout: CanvasLayout, fonts: Fo
 
       const rec = game.observations.get(vecKey(pos));
       const isCurrent = currentView.has(vecKey(pos));
-      const adjacent = isAdjacent8(player, pos);
+      const adjacent = isAdjacent4(player, pos);
 
       let bgColor: string = COLOR.fog;
       let label = '';

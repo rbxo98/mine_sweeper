@@ -1,4 +1,4 @@
-import { chebyshevDistance, isAdjacent8, neighbors8, ORIGIN } from './geometry';
+import { isAdjacent4, manhattanDistance, neighbors8, ORIGIN } from './geometry';
 import { type Params } from './params';
 import { type PhaseHandler, runChain } from './turnChain';
 import { type Vec2, vecKey } from './Vec2';
@@ -106,7 +106,7 @@ export class Game {
 
   private startTurn(kind: ActionKind, target: Vec2, opts: { requireConfirmedTarget: boolean }): void {
     if (this.phase !== GamePhase.PLAYING) return;
-    if (!isAdjacent8(this.player, target)) return;
+    if (!isAdjacent4(this.player, target)) return;
 
     const existing = this.observations.get(vecKey(target));
     const confirmed = existing !== undefined && isConfirmed(existing.status);
@@ -166,7 +166,7 @@ export class Game {
     // 진입 (§3 step3): 네 경우 모두 플레이어는 대상 칸으로 이동한다.
     enter: (ctx) => {
       this.player = ctx.target;
-      const dist = chebyshevDistance(ORIGIN, this.player);
+      const dist = manhattanDistance(ORIGIN, this.player);
       if (dist > this.maxDistance) this.maxDistance = dist;
       return { type: 'continue' };
     },
