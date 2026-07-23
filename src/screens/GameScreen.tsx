@@ -27,11 +27,7 @@ import { type BoardLayout, computeBoardLayout, offsetScreenPos, screenToOffset, 
 // (웹은 시스템 폰트로 한글이 바로 나온다) — Skia 폰트가 필요한 건 보드 칸 라벨뿐이다.
 
 const COLOR = {
-  background: '#0b0c10',
-  // fog는 예전엔 background와 거의 같은 색(#08090b)이라 미탐사 칸이 화면 배경과
-  // 구분이 안 됐다 — 그래서 보드 전체가 화면의 일부만 차지하는 것처럼 보이는
-  // 착시가 생겼다. 보드 영역 전체(미탐사 칸 포함)가 눈에 보이는 하나의 판이라는
-  // 걸 분명히 하려고 배경보다 뚜렷이 밝은 색으로 바꿨다.
+  background: '#ffffff',
   fog: '#15171d',
   observedPast: '#1c1f26',
   observedPastText: '#6b7280',
