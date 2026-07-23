@@ -28,7 +28,12 @@ import { type BoardLayout, computeBoardLayout, offsetScreenPos, screenToOffset, 
 
 const COLOR = {
   background: '#0b0c10',
-  fog: '#08090b',
+  // fog는 예전엔 background와 거의 같은 색(#08090b)이라 미탐사 칸이 화면 배경과
+  // 구분이 안 됐다 — 그래서 보드 전체가 화면의 일부만 차지하는 것처럼 보이는
+  // 착시가 생겼다. 보드 영역 전체(미탐사 칸 포함)가 눈에 보이는 하나의 판이라는
+  // 걸 분명히 하려고 배경보다 뚜렷이 밝은 색으로 바꿨다.
+  fog: '#15171d',
+  boardBorder: '#242832',
   observedPast: '#1c1f26',
   observedPastText: '#6b7280',
   currentView: '#262a33',
@@ -86,6 +91,13 @@ function buildBoardPicture(controller: GameBController, layout: BoardLayout, cel
   const player = game.player;
   const gameOver = game.phase !== GamePhase.PLAYING;
   const cellSize = layout.cellSize;
+
+  // 보드 전체 경계를 뚜렷한 테두리로 한 번 그린다 — 칸 색과 무관하게 "여기까지가
+  // 보드"라는 게 항상 눈에 보이도록.
+  canvas.drawRect(
+    Skia.XYWHRect(layout.originX + 0.5, layout.originY + 0.5, layout.boardWidth - 1, layout.boardHeight - 1),
+    strokePaint(COLOR.boardBorder, 1)
+  );
 
   const currentView = new Set<string>([vecKey(player), ...neighbors8(player).map(vecKey)]);
 
