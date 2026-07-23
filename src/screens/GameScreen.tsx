@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { LayoutChangeEvent } from 'react-native';
-import { StyleSheet, View } from 'react-native';
-import { Canvas, Group, Picture, PaintStyle, Skia, useFont } from '@shopify/react-native-skia';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Canvas, Picture, PaintStyle, Skia, useFont } from '@shopify/react-native-skia';
 import type { SkFont, SkPaint, SkPicture } from '@shopify/react-native-skia';
 // 패키지 루트(barrel) 대신 특정 굵기 하위 경로에서 바로 import한다 — 루트로 가져오면
 // Metro가 트리쉐이킹을 못 해 안 쓰는 다른 8개 굵기(각 6.2MB)까지 전부 번들에 들어간다.
@@ -10,20 +10,21 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { DIRECTION_DELTA, useKeyboardInput, type GameInputAction } from '../input';
 import { GameBController, GamePhase, isAdjacent4, manhattanDistance, neighbors8, ORIGIN, vecKey } from '../engine';
 import type { Vec2 } from '../engine';
-import { BOARD_MARGIN, type CanvasLayout, computeFixedLayout, FOOTER_HEIGHT, offsetScreenPos, screenToOffset, VIEW_RADIUS_X, VIEW_RADIUS_Y } from './layout';
+import { type BoardLayout, computeBoardLayout, offsetScreenPos, screenToOffset, VIEW_RADIUS_X, VIEW_RADIUS_Y } from './layout';
 
-// 유일한 화면의 Skia 뷰. 상태·규칙은 src/engine(GameBController)에 있고, 이 파일은
-// "Skia로 그리기"와 "제스처를 controller 호출로 번역하기"만 한다. 드래그 다중 선택은
-// 없다 — 탭=이동, 롱프레스=해체 두 가지만 있으면 된다(§6.4의 마우스 좌/우클릭에 대응).
+// 유일한 화면. 판(보드)이 화면 전체를 채우고, HUD/버튼 같은 게임 UI는 그 위에 얹는
+// 오버레이(일반 RN View/Text/Pressable)로 띄운다 — Skia 캔버스 자체는 오직 보드
+// 칸만 그린다(배경, 칸 색, 칸 라벨, 플레이어 마커). 상태·규칙은 src/engine
+// (GameBController)에 있고, 이 파일은 "Skia로 보드 그리기"와 "제스처를 controller
+// 호출로 번역하기"만 한다. 탭=이동, 롱프레스=해체(§6.4의 마우스 좌/우클릭에 대응).
 // A(지뢰추적자)에서 나온 드래그선택/코드오픈, 지뢰 이동 같은 기능은 src/mechanics에
 // 재사용 가능한 형태로만 옮겨져 있고 아직 이 화면에 연결되지 않았다
 // ([[decisions/2026-07-22-cherry-pick-a-into-b]] 참고).
 //
 // 폰트: 웹(CanvasKit)은 네이티브와 달리 기본 내장 폰트가 전혀 없어 Skia.Font(undefined, size)
-// 로는 텍스트가 아예 안 그려진다 — 반드시 실제 폰트 파일을 useFont()로 로드해야 한다.
-// 한글(HUD 문구, 버튼 라벨)을 그려야 하므로 Noto Sans KR을 번들(@expo-google-fonts
-// /noto-sans-kr, MIT+OFL-1.1)해서 쓴다. useFont는 로드 전엔 null을 반환하므로, 폰트가
-// 전부 준비되기 전까지는 캔버스를 그리지 않는다(아래 컴포넌트의 fontsReady 가드).
+// 로는 텍스트가 아예 안 그려진다 — 보드 칸 라벨(숫자/✓/×)도 반드시 실제 폰트 파일을
+// useFont()로 로드해야 한다. HUD/버튼/힌트 텍스트는 이제 일반 RN Text라 이 문제와 무관
+// (웹은 시스템 폰트로 한글이 바로 나온다) — Skia 폰트가 필요한 건 보드 칸 라벨뿐이다.
 
 const COLOR = {
   background: '#0b0c10',
@@ -38,17 +39,10 @@ const COLOR = {
   player: '#ffcc4d',
   text: '#f2f2f2',
   muted: '#9aa0ab',
+  overlayBg: 'rgba(11, 12, 16, 0.72)',
   button: '#181a20',
   buttonBorder: '#2a2d35',
-  buttonDisabled: '#14151a',
 } as const;
-
-interface Fonts {
-  meta: SkFont;
-  cell: SkFont;
-  button: SkFont;
-  hint: SkFont;
-}
 
 function fillPaint(color: string): SkPaint {
   const paint = Skia.Paint();
@@ -69,70 +63,30 @@ function centeredTextOrigin(font: SkFont, text: string, cx: number, cy: number):
   return { x: cx - bounds.width / 2 - bounds.x, y: cy - bounds.y - bounds.height / 2 };
 }
 
-interface TapRegion {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  onTap: () => void;
-}
-
-interface Scene {
-  picture: SkPicture;
-  regions: TapRegion[];
-}
-
-function drawButton(
-  canvas: import('@shopify/react-native-skia').SkCanvas,
-  regions: TapRegion[],
-  label: string,
-  x: number,
-  y: number,
-  font: SkFont,
-  onTap: () => void
-): number {
-  const paddingX = 14;
-  const paddingY = 10;
-  const textBounds = font.measureText(label);
-  const width = textBounds.width + paddingX * 2;
-  const height = 20 + paddingY * 2;
-
-  const bg = Skia.RRectXY(Skia.XYWHRect(x, y, width, height), 6, 6);
-  canvas.drawRRect(bg, fillPaint(COLOR.button));
-  canvas.drawRRect(bg, strokePaint(COLOR.buttonBorder, 1));
-
-  const origin = centeredTextOrigin(font, label, x + width / 2, y + height / 2);
-  canvas.drawText(label, origin.x, origin.y, fillPaint(COLOR.text), font);
-
-  regions.push({ x, y, width, height, onTap });
-  return width;
-}
-
 function statusText(controller: GameBController): string {
   if (controller.phase === GamePhase.OVER) return `게임 종료 · 최종 점수 ${controller.game.score}`;
   return '정찰 중';
 }
 
-function buildScene(controller: GameBController, layout: CanvasLayout, fonts: Fonts): Scene {
+function metaText(controller: GameBController): string {
+  const game = controller.game;
+  const dist = manhattanDistance(ORIGIN, game.player);
+  const hearts = '♥'.repeat(Math.max(0, game.lives)) + '♡'.repeat(Math.max(0, game.params.lives - game.lives));
+  return (
+    `행동 ${game.actionsRemaining}/${game.params.actionBudget}  ·  라이프 ${hearts}  ·  ` +
+    `점수 ${game.score}  ·  콤보 ${game.combo}  ·  거리 ${dist}  ·  시드 ${controller.seed}  ·  ${statusText(controller)}`
+  );
+}
+
+/** 보드 칸만 그린다 — HUD/버튼은 GameScreen 컴포넌트가 RN 오버레이로 얹는다. */
+function buildBoardPicture(controller: GameBController, layout: BoardLayout, cellFont: SkFont): SkPicture {
   const recorder = Skia.PictureRecorder();
-  const canvas = recorder.beginRecording(Skia.XYWHRect(0, 0, layout.canvasWidth, layout.canvasHeight));
-  const regions: TapRegion[] = [];
+  const canvas = recorder.beginRecording(Skia.XYWHRect(0, 0, layout.boardWidth + layout.originX * 2, layout.boardHeight + layout.originY * 2));
   const game = controller.game;
   const player = game.player;
   const gameOver = game.phase !== GamePhase.PLAYING;
   const cellSize = layout.cellSize;
 
-  canvas.drawRect(Skia.XYWHRect(0, 0, layout.canvasWidth, layout.canvasHeight), fillPaint(COLOR.background));
-
-  // HUD (게임 정보만 — 타이틀 텍스트는 웹 chrome 제거와 함께 없앴다)
-  const dist = manhattanDistance(ORIGIN, player);
-  const hearts = '♥'.repeat(Math.max(0, game.lives)) + '♡'.repeat(Math.max(0, game.params.lives - game.lives));
-  const meta =
-    `행동 ${game.actionsRemaining}/${game.params.actionBudget}  ·  라이프 ${hearts}  ·  ` +
-    `점수 ${game.score}  ·  콤보 ${game.combo}  ·  거리 ${dist}  ·  시드 ${controller.seed}  ·  ${statusText(controller)}`;
-  canvas.drawText(meta, BOARD_MARGIN, 24, fillPaint(COLOR.muted), fonts.meta);
-
-  // 보드(플레이어 중심 뷰포트)
   const currentView = new Set<string>([vecKey(player), ...neighbors8(player).map(vecKey)]);
 
   for (let dy = -VIEW_RADIUS_Y; dy <= VIEW_RADIUS_Y; dy++) {
@@ -185,8 +139,8 @@ function buildScene(controller: GameBController, layout: CanvasLayout, fonts: Fo
       }
 
       if (label) {
-        const origin = centeredTextOrigin(fonts.cell, label, screenX + cellSize / 2, screenY + cellSize / 2);
-        canvas.drawText(label, origin.x, origin.y, fillPaint(labelColor), fonts.cell);
+        const origin = centeredTextOrigin(cellFont, label, screenX + cellSize / 2, screenY + cellSize / 2);
+        canvas.drawText(label, origin.x, origin.y, fillPaint(labelColor), cellFont);
       }
 
       if (dx === 0 && dy === 0) {
@@ -200,21 +154,13 @@ function buildScene(controller: GameBController, layout: CanvasLayout, fonts: Fo
     }
   }
 
-  // 푸터
-  const footerY = layout.canvasHeight - FOOTER_HEIGHT + 10;
-  const restartWidth = drawButton(canvas, regions, '재시작', BOARD_MARGIN, footerY, fonts.button, () => controller.restart());
-  const hintX = BOARD_MARGIN + restartWidth + 16;
-  canvas.drawText('탭: 이동선언 · 롱프레스: 해체선언 · 확정 칸은 후퇴', hintX, footerY + 26, fillPaint(COLOR.muted), fonts.hint);
-
-  const picture = recorder.finishRecordingAsPicture();
-  return { picture, regions };
+  return recorder.finishRecordingAsPicture();
 }
 
 export function GameScreen(): React.JSX.Element {
-  // 캔버스 논리 해상도는 고정이다 — 화면(컨테이너) 크기만 onLayout으로 재서, 비율을
-  // 유지한 채 그 크기에 맞는 스케일(scale)을 구한다("contain" 방식: 잘리거나 찌그러지지
-  // 않고, 종횡비가 안 맞으면 한쪽에 여백이 남는다). 셀 크기·좌표 계산 등 게임 로직은
-  // 이 스케일과 무관하게 항상 고정 해상도 기준으로만 돈다.
+  // 판(보드)이 화면 전체를 채운다 — HUD/버튼은 이 컨테이너 크기와 무관하게 그 위에
+  // 오버레이로 얹으므로, 여기서 재는 크기는 전체 화면 크기 그대로 보드 레이아웃에
+  // 쓰인다(예전처럼 여백을 미리 빼고 계산하지 않는다).
   const [measuredSize, setMeasuredSize] = useState({ width: 0, height: 0 });
   const onContainerLayout = (e: LayoutChangeEvent): void => {
     const { width, height } = e.nativeEvent.layout;
@@ -232,28 +178,17 @@ export function GameScreen(): React.JSX.Element {
     () => controller.version
   );
 
-  // useFont는 로드 완료 전엔 null을 반환한다 — 전부 준비될 때까지 캔버스를 그리지 않는다.
-  const metaFont = useFont(NotoSansKR_400Regular, 12);
-  const cellFont = useFont(NotoSansKR_400Regular, 13);
-  const buttonFont = useFont(NotoSansKR_400Regular, 14);
-  const hintFont = useFont(NotoSansKR_400Regular, 11);
-  const fonts: Fonts | null =
-    metaFont && cellFont && buttonFont && hintFont ? { meta: metaFont, cell: cellFont, button: buttonFont, hint: hintFont } : null;
+  const layout = useMemo(() => computeBoardLayout(measuredSize.width, measuredSize.height), [measuredSize]);
 
-  const layout = useMemo(() => computeFixedLayout(), []);
-  const scale =
-    measuredSize.width > 0 && measuredSize.height > 0
-      ? Math.min(measuredSize.width / layout.canvasWidth, measuredSize.height / layout.canvasHeight)
-      : 0;
+  // useFont는 로드 완료 전엔 null을 반환한다 — 전부 준비될 때까지 보드를 그리지 않는다.
+  const cellFontSize = Math.max(10, Math.round(layout.cellSize * 0.4));
+  const cellFont = useFont(NotoSansKR_400Regular, cellFontSize);
 
-  const scene = useMemo(() => {
-    if (!fonts) return null;
-    return buildScene(controller, layout, fonts);
+  const picture = useMemo(() => {
+    if (!cellFont || measuredSize.width === 0) return null;
+    return buildBoardPicture(controller, layout, cellFont);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [controller, layout, controller.version, fonts]);
-
-  const findRegion = (regions: TapRegion[], x: number, y: number): TapRegion | undefined =>
-    regions.find((r) => x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height);
+  }, [controller, layout, controller.version, cellFont, measuredSize.width]);
 
   const targetAt = (x: number, y: number): Vec2 | null => {
     const offset = screenToOffset(x, y, layout);
@@ -282,18 +217,9 @@ export function GameScreen(): React.JSX.Element {
 
   // ── 입력 레이어(터치 제스처 → controller 호출) ──────────────────────────
   // 탭 = 주 동작(이동 선언), 롱프레스 = 보조 동작(해체 선언) — 마우스 좌/우클릭과 대응.
-  // 제스처 좌표는 화면에 표시된(스케일된) 크기 기준이라, 캔버스 논리 좌표로 쓰려면
-  // scale로 나눠서 되돌려야 한다(레터박스 스케일과 무관하게 항상 정확한 칸을 짚도록).
+  // 재시작 버튼은 이제 일반 RN Pressable이라 여기서 별도 히트테스트가 필요 없다.
   const tapGesture = Gesture.Tap().onEnd((e) => {
-    if (!scene || scale <= 0) return;
-    const x = e.x / scale;
-    const y = e.y / scale;
-    const region = findRegion(scene.regions, x, y);
-    if (region) {
-      region.onTap();
-      return;
-    }
-    const target = targetAt(x, y);
+    const target = targetAt(e.x, e.y);
     if (target) controller.onPrimaryAction(target);
   });
 
@@ -301,29 +227,38 @@ export function GameScreen(): React.JSX.Element {
     .minDuration(350)
     .maxDistance(12)
     .onStart((e) => {
-      if (scale <= 0) return;
-      const target = targetAt(e.x / scale, e.y / scale);
+      const target = targetAt(e.x, e.y);
       if (target) controller.onSecondaryAction(target);
     });
 
   const composedGesture = Gesture.Race(longPressGesture, tapGesture);
 
-  const displayWidth = layout.canvasWidth * scale;
-  const displayHeight = layout.canvasHeight * scale;
-
   return (
     <View style={styles.container} onLayout={onContainerLayout}>
-      {scene && scale > 0 && (
+      {picture && (
         <GestureDetector gesture={composedGesture}>
-          <View style={{ width: displayWidth, height: displayHeight }}>
-            <Canvas style={{ width: displayWidth, height: displayHeight }}>
-              <Group transform={[{ scale }]}>
-                <Picture picture={scene.picture} />
-              </Group>
+          <View style={StyleSheet.absoluteFill}>
+            <Canvas style={StyleSheet.absoluteFill}>
+              <Picture picture={picture} />
             </Canvas>
           </View>
         </GestureDetector>
       )}
+
+      {/* HUD 오버레이 — 보드 위에 얹힐 뿐 탭은 그대로 보드로 통과시킨다. */}
+      <View style={styles.hudBar} pointerEvents="none">
+        <Text style={styles.hudText}>{metaText(controller)}</Text>
+      </View>
+
+      {/* 하단 오버레이 — 재시작 버튼만 실제로 탭을 받고, 나머지 영역은 보드로 통과. */}
+      <View style={styles.footerBar} pointerEvents="box-none">
+        <Pressable style={styles.button} onPress={() => controller.restart()}>
+          <Text style={styles.buttonLabel}>재시작</Text>
+        </Pressable>
+        <Text style={styles.hintText} pointerEvents="none">
+          탭: 이동선언 · 롱프레스: 해체선언 · 확정 칸은 후퇴
+        </Text>
+      </View>
     </View>
   );
 }
@@ -331,8 +266,49 @@ export function GameScreen(): React.JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
     backgroundColor: COLOR.background,
+  },
+  hudBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: COLOR.overlayBg,
+  },
+  hudText: {
+    color: COLOR.muted,
+    fontSize: 13,
+  },
+  footerBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: COLOR.overlayBg,
+  },
+  button: {
+    backgroundColor: COLOR.button,
+    borderColor: COLOR.buttonBorder,
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  buttonLabel: {
+    color: COLOR.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  hintText: {
+    color: COLOR.muted,
+    fontSize: 12,
+    flexShrink: 1,
   },
 });
