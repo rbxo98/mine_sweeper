@@ -62,6 +62,55 @@ describe('World 청크 생성', () => {
   });
 });
 
+describe('World 유한 맵 경계 (mapSize)', () => {
+  const FINITE_PARAMS: Params = createParams({ actionBudget: 40, lives: 3, mapSize: 21 });
+
+  it('mapSize=0(기본값)이면 아무리 멀어도 항상 경계 안이다', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: -10_000, max: 10_000 }), fc.integer({ min: -10_000, max: 10_000 }), (x, y) => {
+        const w = new World(PARAMS, 1);
+        expect(w.isInBounds({ x, y })).toBe(true);
+      }),
+      { numRuns: 50 }
+    );
+  });
+
+  it('mapSize=21이면 |x|<=10, |y|<=10 안쪽만 경계 안이다', () => {
+    const w = new World(FINITE_PARAMS, 1);
+    expect(w.isInBounds({ x: 10, y: 10 })).toBe(true);
+    expect(w.isInBounds({ x: -10, y: 0 })).toBe(true);
+    expect(w.isInBounds({ x: 11, y: 0 })).toBe(false);
+    expect(w.isInBounds({ x: 0, y: -11 })).toBe(false);
+  });
+
+  it('경계 밖 칸은 절대 지뢰가 아니다', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 0, max: 1_000_000 }), fc.integer({ min: 11, max: 40 }), (seed, offset) => {
+        const w = new World(FINITE_PARAMS, seed);
+        expect(w.isMine({ x: offset, y: 0 })).toBe(false);
+        expect(w.isMine({ x: 0, y: offset })).toBe(false);
+      }),
+      { numRuns: 50 }
+    );
+  });
+
+  it('유한 맵에서 플레이어는 경계 밖으로 이동 선언을 할 수 없다(벽처럼 막힘)', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 0, max: 1_000_000 }), (seed) => {
+        const game = new Game(FINITE_PARAMS, seed);
+        // 시작 칸(원점)에서 맵 경계까지 4방향으로 계속 이동을 시도 — 경계 밖 선언은
+        // 전부 무시되어야 하고(부작용 없음), 플레이어는 결코 경계를 벗어나지 않는다.
+        for (let step = 0; step < 30; step++) {
+          const target = { x: game.player.x + 1, y: game.player.y };
+          game.declareMove(target);
+          expect(Math.abs(game.player.x) <= 10 && Math.abs(game.player.y) <= 10).toBe(true);
+        }
+      }),
+      { numRuns: 20 }
+    );
+  });
+});
+
 function randomAgentStep(game: Game): void {
   const options = neighbors4(game.player);
   const target = options[Math.floor(Math.random() * options.length)]!;

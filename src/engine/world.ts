@@ -25,6 +25,9 @@ export class World {
   private readonly densityMax: number;
   private readonly safeHalfExtent: number;
   private readonly worldSeed: number;
+  /** null이면 무한 맵. 양수면 원점 중심 [-mapHalfExtent, mapHalfExtent] 정사각형 밖은
+   *  전부 맵 밖(지뢰도 없고 이동 대상도 될 수 없음) — 유한 맵 모드(§ 메인 화면 설정). */
+  private readonly mapHalfExtent: number | null;
 
   private readonly chunkMines = new Map<string, ReadonlySet<string>>();
   /** 해체·폭발로 실제 제거된 지뢰. 청크의 원본 배치는 그대로 두고 이 목록으로 덮어쓴다. */
@@ -35,10 +38,18 @@ export class World {
     this.densityMin = params.densityMin;
     this.densityMax = params.densityMax;
     this.safeHalfExtent = Math.floor(params.safeRadius / 2);
+    this.mapHalfExtent = params.mapSize > 0 ? Math.floor(params.mapSize / 2) : null;
     this.worldSeed = worldSeed;
   }
 
+  /** 유한 맵일 때 맵 경계 안인지. 무한 맵이면 항상 true. */
+  isInBounds(pos: Vec2): boolean {
+    if (this.mapHalfExtent === null) return true;
+    return Math.abs(pos.x) <= this.mapHalfExtent && Math.abs(pos.y) <= this.mapHalfExtent;
+  }
+
   isMine(pos: Vec2): boolean {
+    if (!this.isInBounds(pos)) return false;
     const key = vecKey(pos);
     if (this.removedMines.has(key)) return false;
     return this.ensureChunk(pos).has(key);

@@ -107,6 +107,8 @@ export class Game {
   private startTurn(kind: ActionKind, target: Vec2, opts: { requireConfirmedTarget: boolean }): void {
     if (this.phase !== GamePhase.PLAYING) return;
     if (!isAdjacent4(this.player, target)) return;
+    // 유한 맵(§ 메인 화면 설정)에서는 경계 밖 칸을 행동 대상으로 고를 수 없다 — 벽처럼 막힌다.
+    if (!this.world.isInBounds(target)) return;
 
     const existing = this.observations.get(vecKey(target));
     const confirmed = existing !== undefined && isConfirmed(existing.status);

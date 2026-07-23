@@ -9,7 +9,7 @@ import { NotoSansKR_400Regular } from '@expo-google-fonts/noto-sans-kr/400Regula
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { DIRECTION_DELTA, useKeyboardInput, type GameInputAction } from '../input';
 import { GameBController, GamePhase, isAdjacent4, manhattanDistance, neighborsWithinRadius, ORIGIN, vecKey } from '../engine';
-import type { Vec2 } from '../engine';
+import type { Params, Vec2 } from '../engine';
 import { type BoardLayout, computeBoardLayout, offsetScreenPos, screenToOffset } from './layout';
 
 // 유일한 화면. 판(보드)이 화면 전체를 채우고, HUD/버튼 같은 게임 UI는 그 위에 얹는
@@ -71,8 +71,12 @@ function metaText(controller: GameBController): string {
   const game = controller.game;
   const dist = manhattanDistance(ORIGIN, game.player);
   const hearts = '♥'.repeat(Math.max(0, game.lives)) + '♡'.repeat(Math.max(0, game.params.lives - game.lives));
+  // 유한 맵(§ 메인 화면 설정)은 행동 수 상한을 UI에 안 보여준다 — 내부적으로는 사실상
+  // 무제한 값(UNLIMITED_ACTION_BUDGET)이 들어있지만, 그 큰 숫자를 그대로 보여주면
+  // 혼란스러우니 "∞"로 표시한다.
+  const actionText = game.params.mapSize > 0 ? '∞' : `${game.actionsRemaining}/${game.params.actionBudget}`;
   return (
-    `행동 ${game.actionsRemaining}/${game.params.actionBudget}  ·  라이프 ${hearts}  ·  ` +
+    `행동 ${actionText}  ·  라이프 ${hearts}  ·  ` +
     `점수 ${game.score}  ·  콤보 ${game.combo}  ·  거리 ${dist}  ·  시드 ${controller.seed}  ·  ${statusText(controller)}`
   );
 }
@@ -159,7 +163,13 @@ function buildBoardPicture(controller: GameBController, layout: BoardLayout, cel
   return recorder.finishRecordingAsPicture();
 }
 
-export function GameScreen(): React.JSX.Element {
+export interface GameScreenProps {
+  /** 메인 화면(MainMenuScreen)에서 고른 설정 — 시야 반경, 맵 크기/행동력 등.
+   *  생략하면 엔진 기본값(createParams())으로 시작한다. */
+  initialParams?: Partial<Params>;
+}
+
+export function GameScreen({ initialParams }: GameScreenProps): React.JSX.Element {
   // 판(보드)이 화면 전체를 채운다 — HUD/버튼은 이 컨테이너 크기와 무관하게 그 위에
   // 오버레이로 얹으므로, 여기서 재는 크기는 전체 화면 크기 그대로 보드 레이아웃에
   // 쓰인다(예전처럼 여백을 미리 빼고 계산하지 않는다).
@@ -172,7 +182,7 @@ export function GameScreen(): React.JSX.Element {
   };
 
   const controllerRef = useRef<GameBController | null>(null);
-  if (!controllerRef.current) controllerRef.current = new GameBController();
+  if (!controllerRef.current) controllerRef.current = new GameBController(initialParams);
   const controller = controllerRef.current;
 
   useSyncExternalStore(

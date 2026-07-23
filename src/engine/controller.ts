@@ -1,6 +1,6 @@
 import { isAdjacent4 } from './geometry';
 import { CellStatus, Game, GamePhase } from './game';
-import { createParams } from './params';
+import { createParams, type Params } from './params';
 import { type Vec2, vecKey } from './Vec2';
 
 /**
@@ -13,8 +13,12 @@ export class GameBController {
   private _game: Game;
   private readonly listeners = new Set<() => void>();
   private _version = 0;
+  /** 메인 화면에서 고른 설정(시야 반경, 맵 크기/행동력 등) — restart()에서도 그대로
+   *  재사용해야 하므로 생성자에서 받아 저장해둔다. */
+  private readonly paramOverrides: Partial<Params>;
 
-  constructor() {
+  constructor(paramOverrides: Partial<Params> = {}) {
+    this.paramOverrides = paramOverrides;
     this._game = this.createGame();
   }
 
@@ -47,7 +51,7 @@ export class GameBController {
 
   private createGame(): Game {
     this._seed = Math.floor(Math.random() * 1_000_000);
-    return new Game(createParams(), this._seed);
+    return new Game(createParams(this.paramOverrides), this._seed);
   }
 
   restart(): void {
