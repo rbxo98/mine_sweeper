@@ -8,7 +8,7 @@ import type { SkFont, SkPaint, SkPicture } from '@shopify/react-native-skia';
 import { NotoSansKR_400Regular } from '@expo-google-fonts/noto-sans-kr/400Regular';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { DIRECTION_DELTA, useKeyboardInput, type GameInputAction } from '../input';
-import { GameBController, GamePhase, isAdjacent4, manhattanDistance, neighbors8, ORIGIN, vecKey } from '../engine';
+import { GameBController, GamePhase, isAdjacent4, manhattanDistance, neighborsWithinRadius, ORIGIN, vecKey } from '../engine';
 import type { Vec2 } from '../engine';
 import { type BoardLayout, computeBoardLayout, offsetScreenPos, screenToOffset } from './layout';
 
@@ -89,7 +89,12 @@ function buildBoardPicture(controller: GameBController, layout: BoardLayout, cel
   const cellHeight = cellSize;
   const markerRadius = cellSize * 0.22;
 
-  const currentView = new Set<string>([vecKey(player), ...neighbors8(player).map(vecKey)]);
+  // "지금 밝게 보이는 칸" 표시는 실제 관측 로직(Game.observe, params.visionRadius)과
+  // 항상 같은 범위여야 한다 — 하드코딩된 3×3(neighbors8) 대신 같은 함수/파라미터를 쓴다.
+  const currentView = new Set<string>([
+    vecKey(player),
+    ...neighborsWithinRadius(player, game.params.visionRadius).map(vecKey),
+  ]);
 
   for (let dy = -viewRadiusY; dy <= viewRadiusY; dy++) {
     for (let dx = -viewRadiusX; dx <= viewRadiusX; dx++) {

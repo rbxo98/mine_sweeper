@@ -2,17 +2,29 @@ import type { Vec2 } from './Vec2';
 
 export const ORIGIN: Vec2 = { x: 0, y: 0 };
 
-/** 8방향(대각 포함) 인접 칸 — §5.1/§5.2 시야·센서 범위(3×3)에 쓰인다. 이동 판정에는
- * 쓰이지 않는다(§5.8 변경, 아래 isAdjacent4 참고). */
-export function neighbors8(pos: Vec2): Vec2[] {
+/**
+ * 체비쇼프 반경 `radius` 안의 모든 칸(자기 자신 제외, 대각 포함) — `neighbors8`의 일반화.
+ * `radius=1`이면 정확히 `neighbors8`과 같은 3×3-1=8칸을 반환한다. 시야 반경(§5.1,
+ * `Params.visionRadius`)처럼 "플레이어 주변 몇 칸을 밝힐지"를 설정 가능하게 만들 때 쓴다.
+ * 센서값 계산(§5.2, `World.sensorValueAt`)처럼 항상 고정 3×3이어야 하는 규칙에는
+ * 여전히 `neighbors8`을 그대로 쓴다 — 그건 시야 범위와 무관한 별개의 게임 규칙이다.
+ */
+export function neighborsWithinRadius(pos: Vec2, radius: number): Vec2[] {
   const result: Vec2[] = [];
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) {
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
       if (dx === 0 && dy === 0) continue;
       result.push({ x: pos.x + dx, y: pos.y + dy });
     }
   }
   return result;
+}
+
+/** 8방향(대각 포함) 인접 칸 — §5.2 센서 범위(3×3, `World.sensorValueAt`)에 쓰이는
+ * 고정 규칙. 이동 판정에는 쓰이지 않는다(§5.8 변경, 아래 isAdjacent4 참고). 시야
+ * 반경처럼 크기를 바꿔야 하면 `neighborsWithinRadius`를 대신 쓸 것. */
+export function neighbors8(pos: Vec2): Vec2[] {
+  return neighborsWithinRadius(pos, 1);
 }
 
 /** 4방향(상하좌우) 인접 칸 */

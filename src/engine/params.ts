@@ -12,6 +12,10 @@ export interface Params {
   densityMax: number;
   /** 시작 안전 지대 한 변 — 5면 원점 중심 5×5 (§5.1, §9 safeRadius) */
   safeRadius: number;
+  /** 시야 반경 — 플레이어 기준 체비쇼프 반경 몇 칸까지 매 턴 관측(observe)되는지
+   *  (§5.1 "3×3 시야"는 이 값이 1일 때의 결과). 센서값 계산(§5.2)과는 별개 — 그건
+   *  항상 고정 3×3(`neighbors8`)이다. */
+  visionRadius: number;
   /** 최초 방문 안전 칸 점수 (§5.4 scoreSafe) */
   scoreSafe: number;
   /** 지뢰 해체 점수 (§5.4 scoreDefuse) */
@@ -34,6 +38,7 @@ export function createParams(overrides: Partial<Params> = {}): Params {
     densityMin: 0.16,
     densityMax: 0.22,
     safeRadius: 5,
+    visionRadius: 1,
     scoreSafe: 10,
     scoreDefuse: 30,
     comboStep: 5,

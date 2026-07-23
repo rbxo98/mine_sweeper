@@ -1,4 +1,4 @@
-import { isAdjacent4, manhattanDistance, neighbors8, ORIGIN } from './geometry';
+import { isAdjacent4, manhattanDistance, neighborsWithinRadius, ORIGIN } from './geometry';
 import { type Params } from './params';
 import { type PhaseHandler, runChain } from './turnChain';
 import { type Vec2, vecKey } from './Vec2';
@@ -85,8 +85,8 @@ export class Game {
       sensorValue: this.world.sensorValueAt(this.player),
       status: CellStatus.VISITED_SAFE,
     });
-    // §5.1: 시작 시 3×3 시야가 즉시 관측된다.
-    for (const n of neighbors8(this.player)) this.recordObservation(n);
+    // §5.1: 시작 시 시야 반경(params.visionRadius, 기본값 1 = 3×3)이 즉시 관측된다.
+    for (const n of neighborsWithinRadius(this.player, this.params.visionRadius)) this.recordObservation(n);
   }
 
   /** 인접 미확정 칸에 "안전" 선언 (§5.3, §6.4 좌클릭) */
@@ -171,10 +171,10 @@ export class Game {
       return { type: 'continue' };
     },
 
-    // 관측 갱신 (§3 step4): 새 위치 기준 3×3 센서값을 지도에 기록한다.
+    // 관측 갱신 (§3 step4): 새 위치 기준 시야 반경(params.visionRadius) 안의 칸을 지도에 기록한다.
     observe: () => {
       this.recordObservation(this.player);
-      for (const n of neighbors8(this.player)) this.recordObservation(n);
+      for (const n of neighborsWithinRadius(this.player, this.params.visionRadius)) this.recordObservation(n);
       return { type: 'continue' };
     },
 
