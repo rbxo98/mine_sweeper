@@ -276,6 +276,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLOR.background,
+    // 보드 박스가 고정 셀 크기 때문에 컨테이너보다 살짝 커질 수 있다(끝 칸이 잘리는
+    // 쪽을 택했으므로) — overflow 없이 두면 삐져나온 부분이 스크롤/오버플로로 보일
+    // 수 있어 항상 컨테이너 경계에서 잘라낸다.
+    overflow: 'hidden',
   },
   // HUD/footer 컨테이너에는 배경색을 절대 넣지 않는다 — 배경이 있으면 그 자체로
   // "여기서부터는 보드가 아니라 UI 영역"이라는 별도 구획이 생겨버린다(사용자 지적).
