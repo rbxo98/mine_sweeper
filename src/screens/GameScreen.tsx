@@ -10,7 +10,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { DIRECTION_DELTA, useKeyboardInput, type GameInputAction } from '../input';
 import { GameBController, GamePhase, isAdjacent4, manhattanDistance, neighbors8, ORIGIN, vecKey } from '../engine';
 import type { Vec2 } from '../engine';
-import { type BoardLayout, computeBoardLayout, offsetScreenPos, screenToOffset, VIEW_RADIUS_X, VIEW_RADIUS_Y } from './layout';
+import { type BoardLayout, computeBoardLayout, offsetScreenPos, screenToOffset } from './layout';
 
 // 유일한 화면. 판(보드)이 화면 전체를 채우고, HUD/버튼 같은 게임 UI는 그 위에 얹는
 // 오버레이(일반 RN View/Text/Pressable)로 띄운다 — Skia 캔버스 자체는 오직 보드
@@ -27,7 +27,7 @@ import { type BoardLayout, computeBoardLayout, offsetScreenPos, screenToOffset, 
 // (웹은 시스템 폰트로 한글이 바로 나온다) — Skia 폰트가 필요한 건 보드 칸 라벨뿐이다.
 
 const COLOR = {
-  background: '#ffffff',
+  background: '#000000',
   fog: '#15171d',
   observedPast: '#1c1f26',
   observedPastText: '#6b7280',
@@ -84,13 +84,15 @@ function buildBoardPicture(controller: GameBController, layout: BoardLayout, cel
   const game = controller.game;
   const player = game.player;
   const gameOver = game.phase !== GamePhase.PLAYING;
-  const { cellWidth, cellHeight } = layout;
-  const markerRadius = Math.min(cellWidth, cellHeight) * 0.22;
+  const { cellSize, viewRadiusX, viewRadiusY } = layout;
+  const cellWidth = cellSize;
+  const cellHeight = cellSize;
+  const markerRadius = cellSize * 0.22;
 
   const currentView = new Set<string>([vecKey(player), ...neighbors8(player).map(vecKey)]);
 
-  for (let dy = -VIEW_RADIUS_Y; dy <= VIEW_RADIUS_Y; dy++) {
-    for (let dx = -VIEW_RADIUS_X; dx <= VIEW_RADIUS_X; dx++) {
+  for (let dy = -viewRadiusY; dy <= viewRadiusY; dy++) {
+    for (let dx = -viewRadiusX; dx <= viewRadiusX; dx++) {
       const pos: Vec2 = { x: player.x + dx, y: player.y + dy };
       const { x: screenX, y: screenY } = offsetScreenPos(dx, dy, layout);
 
@@ -176,7 +178,7 @@ export function GameScreen(): React.JSX.Element {
   const layout = useMemo(() => computeBoardLayout(measuredSize.width, measuredSize.height), [measuredSize]);
 
   // useFont는 로드 완료 전엔 null을 반환한다 — 전부 준비될 때까지 보드를 그리지 않는다.
-  const cellFontSize = Math.max(10, Math.round(Math.min(layout.cellWidth, layout.cellHeight) * 0.4));
+  const cellFontSize = Math.max(10, Math.round(layout.cellSize * 0.4));
   const cellFont = useFont(NotoSansKR_400Regular, cellFontSize);
 
   const picture = useMemo(() => {
@@ -231,9 +233,21 @@ export function GameScreen(): React.JSX.Element {
   return (
     <View style={styles.container} onLayout={onContainerLayout}>
       {picture && (
+        // 보드 박스는 항상 정확히 boardWidth x boardHeight(고정 셀 크기 x 반경) —
+        // 컨테이너보다 작을 수 있고(레터박스), originX/Y로 가운데 정렬한다. 제스처와
+        // Skia 그림 좌표는 전부 이 박스 안쪽 기준(0,0)이라 origin을 따로 더/빼지
+        // 않아도 된다 — 박스 자체가 이미 옮겨져 있다.
         <GestureDetector gesture={composedGesture}>
-          <View style={StyleSheet.absoluteFill}>
-            <Canvas style={StyleSheet.absoluteFill}>
+          <View
+            style={{
+              position: 'absolute',
+              left: layout.originX,
+              top: layout.originY,
+              width: layout.boardWidth,
+              height: layout.boardHeight,
+            }}
+          >
+            <Canvas style={{ width: layout.boardWidth, height: layout.boardHeight }}>
               <Picture picture={picture} />
             </Canvas>
           </View>
