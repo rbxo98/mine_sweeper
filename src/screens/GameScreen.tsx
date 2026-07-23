@@ -43,7 +43,6 @@ const COLOR = {
   player: '#ffcc4d',
   text: '#f2f2f2',
   muted: '#9aa0ab',
-  overlayBg: 'rgba(11, 12, 16, 0.72)',
   button: '#181a20',
   buttonBorder: '#2a2d35',
 } as const;
@@ -268,6 +267,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLOR.background,
   },
+  // HUD/footer 컨테이너에는 배경색을 절대 넣지 않는다 — 배경이 있으면 그 자체로
+  // "여기서부터는 보드가 아니라 UI 영역"이라는 별도 구획이 생겨버린다(사용자 지적).
+  // 보드가 그 밑에도 그대로 깔려 있고, 텍스트/버튼만 그 위에 떠 있어야 한다.
   hudBar: {
     position: 'absolute',
     top: 0,
@@ -275,11 +277,13 @@ const styles = StyleSheet.create({
     right: 0,
     paddingHorizontal: 16,
     paddingVertical: 10,
-    backgroundColor: COLOR.overlayBg,
   },
   hudText: {
-    color: COLOR.muted,
+    color: COLOR.text,
     fontSize: 13,
+    textShadowColor: 'rgba(0, 0, 0, 0.9)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
   footerBar: {
     position: 'absolute',
@@ -291,8 +295,9 @@ const styles = StyleSheet.create({
     gap: 16,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: COLOR.overlayBg,
   },
+  // 버튼 자체는 눌러야 하는 컨트롤이니 배경을 유지한다(라벨 크기에 딱 맞는 알약
+  // 모양 하나뿐 — footerBar처럼 화면 폭 전체를 덮는 띠가 아니다).
   button: {
     backgroundColor: COLOR.button,
     borderColor: COLOR.buttonBorder,
@@ -307,8 +312,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   hintText: {
-    color: COLOR.muted,
+    color: COLOR.text,
     fontSize: 12,
     flexShrink: 1,
+    textShadowColor: 'rgba(0, 0, 0, 0.9)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
 });
