@@ -33,7 +33,6 @@ const COLOR = {
   // 착시가 생겼다. 보드 영역 전체(미탐사 칸 포함)가 눈에 보이는 하나의 판이라는
   // 걸 분명히 하려고 배경보다 뚜렷이 밝은 색으로 바꿨다.
   fog: '#15171d',
-  boardBorder: '#242832',
   observedPast: '#1c1f26',
   observedPastText: '#6b7280',
   currentView: '#262a33',
@@ -86,18 +85,12 @@ function metaText(controller: GameBController): string {
 /** 보드 칸만 그린다 — HUD/버튼은 GameScreen 컴포넌트가 RN 오버레이로 얹는다. */
 function buildBoardPicture(controller: GameBController, layout: BoardLayout, cellFont: SkFont): SkPicture {
   const recorder = Skia.PictureRecorder();
-  const canvas = recorder.beginRecording(Skia.XYWHRect(0, 0, layout.boardWidth + layout.originX * 2, layout.boardHeight + layout.originY * 2));
+  const canvas = recorder.beginRecording(Skia.XYWHRect(0, 0, layout.boardWidth, layout.boardHeight));
   const game = controller.game;
   const player = game.player;
   const gameOver = game.phase !== GamePhase.PLAYING;
-  const cellSize = layout.cellSize;
-
-  // 보드 전체 경계를 뚜렷한 테두리로 한 번 그린다 — 칸 색과 무관하게 "여기까지가
-  // 보드"라는 게 항상 눈에 보이도록.
-  canvas.drawRect(
-    Skia.XYWHRect(layout.originX + 0.5, layout.originY + 0.5, layout.boardWidth - 1, layout.boardHeight - 1),
-    strokePaint(COLOR.boardBorder, 1)
-  );
+  const { cellWidth, cellHeight } = layout;
+  const markerRadius = Math.min(cellWidth, cellHeight) * 0.22;
 
   const currentView = new Set<string>([vecKey(player), ...neighbors8(player).map(vecKey)]);
 
@@ -142,26 +135,21 @@ function buildBoardPicture(controller: GameBController, layout: BoardLayout, cel
         }
       }
 
-      canvas.drawRect(Skia.XYWHRect(screenX, screenY, cellSize, cellSize), fillPaint(bgColor));
+      canvas.drawRect(Skia.XYWHRect(screenX, screenY, cellWidth, cellHeight), fillPaint(bgColor));
       if (adjacent && !gameOver) {
         canvas.drawRect(
-          Skia.XYWHRect(screenX + 0.5, screenY + 0.5, cellSize - 1, cellSize - 1),
+          Skia.XYWHRect(screenX + 0.5, screenY + 0.5, cellWidth - 1, cellHeight - 1),
           strokePaint(COLOR.buttonBorder, 1)
         );
       }
 
       if (label) {
-        const origin = centeredTextOrigin(cellFont, label, screenX + cellSize / 2, screenY + cellSize / 2);
+        const origin = centeredTextOrigin(cellFont, label, screenX + cellWidth / 2, screenY + cellHeight / 2);
         canvas.drawText(label, origin.x, origin.y, fillPaint(labelColor), cellFont);
       }
 
       if (dx === 0 && dy === 0) {
-        canvas.drawCircle(
-          screenX + cellSize / 2,
-          screenY + cellSize / 2 - cellSize * 0.22,
-          cellSize * 0.22,
-          fillPaint(COLOR.player)
-        );
+        canvas.drawCircle(screenX + cellWidth / 2, screenY + cellHeight / 2 - markerRadius, markerRadius, fillPaint(COLOR.player));
       }
     }
   }
@@ -193,7 +181,7 @@ export function GameScreen(): React.JSX.Element {
   const layout = useMemo(() => computeBoardLayout(measuredSize.width, measuredSize.height), [measuredSize]);
 
   // useFont는 로드 완료 전엔 null을 반환한다 — 전부 준비될 때까지 보드를 그리지 않는다.
-  const cellFontSize = Math.max(10, Math.round(layout.cellSize * 0.4));
+  const cellFontSize = Math.max(10, Math.round(Math.min(layout.cellWidth, layout.cellHeight) * 0.4));
   const cellFont = useFont(NotoSansKR_400Regular, cellFontSize);
 
   const picture = useMemo(() => {
